@@ -40,28 +40,31 @@ def get_transforms(img_size=32):
     ])
     return trn_transform, tst_transform
 
-def data_prep(cfg: DictConfig):
-    if cfg.data.split_method == "none":
-        # validation split 없이 전체 데이터를 training에 사용
-        train_df = pd.read_csv(os.path.join(cfg.data.path, "train.csv"))
-        train_df.to_csv(os.path.join(cfg.data.path, "train_fold.csv"), index=False)
-        return
+def data_prep(data_path, cfg: DictConfig):
     
-    data_path = cfg.data.path
+    
     create_dummy = cfg.data.get("create_dummy", False)
     num_classes = cfg.data.get("num_classes", 17)
-    num_train = cfg.data.get("num_train", 100)
-    num_test = cfg.data.get("num_test", 20)
     img_size = cfg.data.get("img_size", 32)
-    if create_dummy and not os.path.exists(os.path.join(data_path, "train.csv")):
+
+# dummy data 생성
+    if create_dummy and not os.path.exists(data_path / "train.csv"):
+        num_train = cfg.data.get("num_train", 100)
+        num_test = cfg.data.get("num_test", 20)
         create_dummy_dataset(root=data_path, num_train=num_train, num_test=num_test, num_classes=num_classes, img_size=img_size)
 
-   
-    df = pd.read_csv(os.path.join(data_path, "train.csv"))
-    data_split(df, cfg)
+    # baseline 의 경우, split 없이 train 전체 사용
+    if cfg.data.split_method == "none":
+        # validation split 없이 전체 데이터를 training에 사용
+        print(data_path)
+        train_df = pd.read_csv(data_path /"train.csv")
+        train_df.to_csv(data_path / "train_fold.csv", index=False)
+        return
+    else:
+        df = pd.read_csv(data_path / "train.csv")
+        data_split(df, data_path, cfg)
 #rain 에서  validation 과 test 를 분리하여 사용
-def data_split(df, cfg: DictConfig):
-    data_path = cfg.data.path
+def data_split(df, data_path, cfg: DictConfig):
     split_method = cfg.data.split_method
     n_splits = cfg.data.get("n_splits", 5)
     fold_index = cfg.data.get("fold_index", 0)
@@ -113,19 +116,19 @@ def data_split(df, cfg: DictConfig):
         print(train_df['target'].value_counts(normalize=True))
 
     # 분할 결과 csv 저장 (data.py에서 이 파일을 사용)
-    train_df.to_csv(os.path.join(data_path, "train_fold.csv"), index=False)
-    val_df.to_csv(os.path.join(data_path, "val_fold.csv"), index=False)
+    train_df.to_csv(data_path / "train_fold.csv", index=False)
+    val_df.to_csv(data_path / "val_fold.csv", index=False)
     # --- 추가 종료 ---# 
 def get_dataloaders(data_path, cfg, batch_size=32, num_workers=0, img_size=32):
     trn_transform, tst_transform = get_transforms(img_size=img_size)
     
     # train_fold.csv와 val_fold.csv를 사용
-    train_csv = os.path.join(data_path, "train_fold.csv")
-    val_csv = os.path.join(data_path, "val_fold.csv")
+    train_csv = data_path / "train_fold.csv"
+    val_csv = data_path / "val_fold.csv"
 
     trn_dataset = ImageDataset(
         train_csv,
-        os.path.join(data_path, "train"),
+        data_path / "train",
         transform=trn_transform
     )
 
@@ -137,7 +140,7 @@ def get_dataloaders(data_path, cfg, batch_size=32, num_workers=0, img_size=32):
     else:
         val_dataset = ImageDataset(
             val_csv,
-            os.path.join(data_path, "train"),
+            data_path / "train",
             transform=tst_transform
         )
         val_loader = DataLoader(
@@ -149,8 +152,8 @@ def get_dataloaders(data_path, cfg, batch_size=32, num_workers=0, img_size=32):
         )
 
     tst_dataset = ImageDataset(
-        os.path.join(data_path, "sample_submission.csv"),
-        os.path.join(data_path, "test"),
+        data_path / "sample_submission.csv",
+        data_path / "test",
         transform=tst_transform
     )
     tst_loader = DataLoader(tst_dataset, batch_size=batch_size, shuffle=False,
@@ -163,12 +166,12 @@ def create_dummy_dataset(root="datasets_fin", num_train=100, num_test=20, num_cl
     from PIL import Image
     import pandas as pd
     os.makedirs(root, exist_ok=True)
-    os.makedirs(os.path.join(root, "train"), exist_ok=True)
-    os.makedirs(os.path.join(root, "test"), exist_ok=True)
+    os.makedirs(root / "train", exist_ok=True)
+    os.makedirs(root / "test", exist_ok=True)
 
     # meta.csv
     class_mapping = pd.DataFrame({"target": range(num_classes), "class_name":["class_"+str(i) for i in range(num_classes)]})
-    class_mapping.to_csv(os.path.join(root, "meta.csv"), index=False)
+    class_mapping.to_csv(root / "meta.csv", index=False)
 
     # train.csv
     train_data = []
@@ -178,8 +181,8 @@ def create_dummy_dataset(root="datasets_fin", num_train=100, num_test=20, num_cl
         train_data.append([img_name, target])
         # dummy image
         img_array = np.random.randint(0, 255, (img_size, img_size, 3), dtype=np.uint8)
-        Image.fromarray(img_array).save(os.path.join(root,"train",img_name))
-    pd.DataFrame(train_data, columns=["ID","target"]).to_csv(os.path.join(root, "train.csv"), index=False)
+        Image.fromarray(img_array).save(root / "train" / img_name)
+    pd.DataFrame(train_data, columns=["ID","target"]).to_csv(root / "train.csv", index=False)
 
     # sample_submission.csv
     test_data = []
@@ -187,8 +190,8 @@ def create_dummy_dataset(root="datasets_fin", num_train=100, num_test=20, num_cl
         img_name = f"test_{i}.jpg"
         test_data.append([img_name, 0]) # dummy target
         img_array = np.random.randint(0, 255, (img_size, img_size, 3), dtype=np.uint8)
-        Image.fromarray(img_array).save(os.path.join(root,"test",img_name))
-    pd.DataFrame(test_data, columns=["ID","target"]).to_csv(os.path.join(root, "sample_submission.csv"), index=False)
+        Image.fromarray(img_array).save(root / "test" / img_name)
+    pd.DataFrame(test_data, columns=["ID","target"]).to_csv(root / "sample_submission.csv", index=False)
 def get_augmentation(config_name):
     if config_name == "basic": # baseline 코드 기준
         return A.Compose([

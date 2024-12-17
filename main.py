@@ -11,13 +11,16 @@ from trainer import Trainer
 from logger import get_logger
 import torch.nn as nn
 from torch.optim import Adam
+from pathlib import Path
 
-
-@hydra.main(version_base=None, config_path="./configs", config_name="config")
+@hydra.main(version_base=None, config_path="./configs", config_name="config_base")
 def main(cfg: DictConfig):
     # 주요 설정 출력
+    data_path = Path(__file__).parent / cfg.data.path
+    model_name = cfg.model.name
     print("\n=== Experiment Configuration ===")
-    print(f"Model: {cfg.model.name}")
+    print(f"Data Path: {data_path}")
+    print(f"Model: {model_name}")
     print(f"Data Split: {cfg.data.split_method}")
     print(f"Augmentation: {cfg.data.augmentation}")
     print(f"Class Balancing: {cfg.model.class_balancing.method}")
@@ -28,11 +31,9 @@ def main(cfg: DictConfig):
     print(f"Image Size: {cfg.train.img_size}")
     print("==============================\n")
 
-    data_path = cfg.data.path
-    model_name = cfg.model.name
+    
     num_classes = cfg.model.num_classes
     pretrained = cfg.model.pretrained
-
     img_size = cfg.train.img_size
     lr = cfg.train.lr
     epochs = cfg.train.epochs
@@ -42,7 +43,7 @@ def main(cfg: DictConfig):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 ### Data 준비
     try:
-        data_prep(cfg)
+        data_prep(data_path, cfg)
     except Exception as e:
         print(f"데이터 준비 중 오류 발생: {str(e)}")
         return

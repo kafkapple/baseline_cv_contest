@@ -54,9 +54,8 @@ test_image2.jpg,1
 
 ## Evaluation Metric: Macro F1 Score
 - F1 Score: Precision과 Recall의 **조화 평균**  
-   데이터 불균형(imbalance) 상황에 특히 효과적  
 - **Macro F1 Score**  
-  각 클래스별 F1 Score를 **평균**하여 계산  
+  각 클래스별 F1 Score를 **평균**하여 계산 (class imbalance 에 예민)
 - **Micro F1 Score**  
   모든 클래스의 Precision과 Recall을 **합산**하여 계산  
 

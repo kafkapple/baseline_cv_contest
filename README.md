@@ -1,5 +1,70 @@
-# [Computer Vision] Contest - Document Classification - (Baseline code)
+# [Computer Vision] Contest: 📄 Document Type Classification (Baseline code)
 
+# I. Overview
+
+## Task: Document Type Classification
+
+| **Category**       | **Type**                    |
+|---------------------|-----------------------------|
+| **Task Type**       | Recognition → Classification → Multi-class |
+| **Data Type**       | Unstructured → Image       |
+| **Evaluation Metric** | Macro F1 Score            |
+
+**핵심**: 주어진 이미지 문서 데이터를 **17종 문서 타입**으로 분류하는 Multi-class Classification
+
+## Data
+
+### 📂 Train Data
+
+- **이미지 수**: 1570장
+- **클래스**: 17종 (각 클래스당 46~100장)
+
+**구성**:  
+- `train.csv`: 이미지 ID와 클래스(Target) 매핑  
+- `train/`: 실제 학습 이미지 폴더  
+
+```csv
+ID,target
+image1.jpg,0
+image2.jpg,1
+image3.jpg,2
+...
+```
+
+
+### 📂 Test Data
+- **이미지 수**: 3140장 (Train보다 많음)
+- **특징**: Augmentation을 통해 현실 세계의 노이즈가 추가됨
+
+**구성**:
+- sample_submission.csv: 예측값을 채워 넣을 더미 파일
+- test/: 테스트 이미지 폴더
+
+```csv    
+ID,target
+test_image1.jpg,0
+test_image2.jpg,1
+...
+```
+
+데이터 요약
+- Train: 클래스당 46~100개의 이미지, 비교적 깨끗한 데이터
+- Test: Augmentation 및 Noise 추가, Train보다 데이터 양이 많음
+- Target: class_name과 index는 meta.csv에서 확인 가능
+
+## Evaluation Metric: Macro F1 Score
+- F1 Score: Precision과 Recall의 **조화 평균**  
+   데이터 불균형(imbalance) 상황에 특히 효과적  
+- **Macro F1 Score**  
+  각 클래스별 F1 Score를 **평균**하여 계산  
+- **Micro F1 Score**  
+  모든 클래스의 Precision과 Recall을 **합산**하여 계산  
+
+> **이 대회에서는 `Macro F1 Score`를 사용**
+
+---
+
+# II. Scripts
 
 ## 1. Setup 환경 설정
 ```bash

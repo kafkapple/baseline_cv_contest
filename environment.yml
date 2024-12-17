@@ -1,0 +1,28 @@
+name: cv
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - scikit-learn=1.3.0
+  - pip
+  - pip:
+    - torch
+    - torchvision
+    - torchaudio
+    - mlflow
+    - optuna
+    - hydra-core
+    - omegaconf
+    - albumentations
+    - timm
+    - opencv-python
+    - psutil
+    - seaborn
+    - tqdm
+    - wandb
+    - imblearn
+    - numpy==1.23.5 
+    - pandas==2.0.3
+

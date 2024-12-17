@@ -1,0 +1,34 @@
+# defaults:
+#   - _self_
+
+data:
+  augmentation: "basic"
+  split_method: "none"
+  path: "datasets_fin"
+  create_dummy: true
+  num_train: 100
+  num_test: 20
+model:
+  name: "resnet34"
+  num_classes: 17
+  pretrained: true
+  class_balancing:
+    method: "none"
+  domain_adaptation:
+    method: "none"
+
+train:
+  epochs: 1
+  batch_size: 32
+  img_size: 32
+  lr: 1e-3
+  num_workers: 0
+  early_stopping:
+    enabled: false
+  mixed_precision:
+    enabled: false
+
+logger:
+  use_wandb: true
+  project_name: "cv_contest"
+  run_name: "baseline_run"

@@ -1,5 +1,70 @@
 # CV Context Baseline Ocde
+```plaintext
+📦 프로젝트 루트
+├── 📜 main.py              # 실행 진입점
+├── 📜 model_factory.py # 모델 생성 팩토리
+├── 📜 trainer.py       # 모델 학습 관리
+├── 📜 logger.py        # 로깅 유틸리티
+├── 📜 dataset.py      # 데이터 처리
+├── 📂 configs
+│   ├── 📜 config.yaml          # 설정 
+
+```
+
+## Setup 환경 설정
+```bash
+git clone https://github.com/kafkapple/baseline_cv_contest.git
+
+cd baseline_cv_contest
+
+conda env create -f environment.yml
+```
+- configs/ 폴더 내의 config.yaml 파일 설정 변경 후 main.py 에서 어떤 config 파일을 사용할지 설정
+```bash
+@hydra.main(version_base=None, config_path="./configs", config_name="config")
+def main(cfg: DictConfig):
+```
+
+
+
 - baseline 과 거의 유사한 설정: config_baseline.yaml 파일 (dummy data 생성, wandb log 만 추가)
+
+### 주요 컴포넌트 설명 🔍
+- config.yaml
+  - 모델, 학습, 데이터 관련 설정을 관리
+  - 주요 설정:
+    - 데이터 증강 및 분할 방법
+    - 모델 아키텍처 및 하이퍼파라미터
+    - 학습 파라미터 (배치 크기, 학습률 등)
+    - 로깅 설정 (Weights & Biases)
+- main.py
+  - 프로그램의 진입점
+config 로드 및 학습 파이프라인 실행
+실험 설정에 따른 다양한 모델 학습 관리
+- trainer.py
+  - 모델 학습 로직 구현
+  - 학습/검증 루프 관리
+  - 조기 종료(Early Stopping) 구현
+  - 혼합 정밀도 학습(Mixed Precision) 지원
+- model_factory.py
+  - 다양한 모델 아키텍처 생성
+  - 사전 학습된 모델 로드
+  - 도메인 적응 및 앙상블 모델 지원
+- data/dataset.py
+  - 데이터셋 클래스 구현
+  - 데이터 증강 파이프라인
+  - 데이터 분할 전략 (holdout, k-fold 등)
+- logger.py
+  - Weights & Biases 통합
+  - 학습 지표 및 결과 로깅
+  - 실험 결과 시각화
+### 주요 기능 🎯
+- 다양한 모델 아키텍처 지원 (ResNet34, EfficientNet-B0)
+- 유연한 데이터 분할 전략
+- 데이터 증강 옵션
+- 도메인 적응 학습
+- 모델 앙상블
+- Weights & Biases를 통한 실험 추적
 
 ## 확장 가능한 옵션들
 

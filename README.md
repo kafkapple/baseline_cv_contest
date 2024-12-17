@@ -1,4 +1,56 @@
-# CV Context Baseline Ocde
+# [Computer Vision] Contest - Document Classification - (Baseline code)
+
+
+## 1. Setup 환경 설정
+```bash
+git clone https://github.com/kafkapple/baseline_cv_contest.git
+
+cd baseline_cv_contest
+
+conda env create -f environment.yml
+```
+
+## 2. Logging: Wandb 설정 
+wandb.ai 가입 후 초대 요청 (팀 슬랙으로)
+
+- Project name 및 entity 기본 설정 (그대로 사용)
+```bash
+project_name: "ailab_contest_cv_team_1"
+entity: "ailab_upstage_fastcampus"
+```
+- 한 곳에서 팀 멤버들의 모든 실험 모니터링 관리 가능하도록
+
+## 3. Config 설정 
+
+- configs/ 폴더 내의 yaml 파일들로 설정 관리
+- 파일 설정 변경 후 main.py 에서 어떤 config 파일을 사용할지 설정 후 실행 (config_name = )
+```bash
+@hydra.main(version_base=None, config_path="./configs", config_name="config")
+def main(cfg: DictConfig):
+```
+- 예시
+  - config_baseline.yaml
+    - baseline 과 거의 유사한 설정
+    - (dummy data 생성, wandb log 만 추가)
+  - config.yaml
+    - 모델, 학습, 데이터 관련 추가 옵션 적용
+
+## 4. main.py 실행 및 wandb api key 입력 (처음만)
+
+- 아래 설명대로, terminal 에서 옵션 중 (2) 선택 후 wandb api key 입력 (https://wandb.ai/authorize 에 접속)
+```bash
+wandb: (1) Create a W&B account
+wandb: (2) Use an existing W&B account
+wandb: (3) Don't visualize my results
+wandb: Enter your choice: 2
+wandb: You chose 'Use an existing W&B account'
+wandb: Logging into wandb.ai. (Learn how to deploy a W&B server locally: https://wandb.me/wandb-server)
+wandb: You can find your API key in your browser here: https://wandb.ai/authorize
+wandb: Paste an API key from your profile and hit enter, or press ctrl+c to quit:
+```
+
+
+### 주요 컴포넌트 설명 🔍
 ```plaintext
 📦 프로젝트 루트
 ├── 📜 main.py              # 실행 진입점
@@ -10,26 +62,6 @@
 │   ├── 📜 config.yaml          # 설정 
 
 ```
-
-## Setup 환경 설정
-```bash
-git clone https://github.com/kafkapple/baseline_cv_contest.git
-
-cd baseline_cv_contest
-
-conda env create -f environment.yml
-```
-- configs/ 폴더 내의 config.yaml 파일 설정 변경 후 main.py 에서 어떤 config 파일을 사용할지 설정
-```bash
-@hydra.main(version_base=None, config_path="./configs", config_name="config")
-def main(cfg: DictConfig):
-```
-
-
-
-- baseline 과 거의 유사한 설정: config_baseline.yaml 파일 (dummy data 생성, wandb log 만 추가)
-
-### 주요 컴포넌트 설명 🔍
 - config.yaml
   - 모델, 학습, 데이터 관련 설정을 관리
   - 주요 설정:
@@ -39,8 +71,8 @@ def main(cfg: DictConfig):
     - 로깅 설정 (Weights & Biases)
 - main.py
   - 프로그램의 진입점
-config 로드 및 학습 파이프라인 실행
-실험 설정에 따른 다양한 모델 학습 관리
+  - config 로드 및 학습 파이프라인 실행
+  - 실험 설정에 따른 다양한 모델 학습 관리
 - trainer.py
   - 모델 학습 로직 구현
   - 학습/검증 루프 관리
@@ -50,7 +82,7 @@ config 로드 및 학습 파이프라인 실행
   - 다양한 모델 아키텍처 생성
   - 사전 학습된 모델 로드
   - 도메인 적응 및 앙상블 모델 지원
-- data/dataset.py
+- data.py
   - 데이터셋 클래스 구현
   - 데이터 증강 파이프라인
   - 데이터 분할 전략 (holdout, k-fold 등)
@@ -108,18 +140,6 @@ config 로드 및 학습 파이프라인 실행
 - Mixed Precision Training:
   - enabled: true/false
   - dtype: float16/bfloat16
-
-### 7. 로깅
-- WandB 로깅:
-  - enabled: true/false
-  - project_name: 프로젝트명 설정
-  - run_name: 실험명 설정
-
-## 사용 예시
-configs/config.yaml 파일 설정 변경 후 main.py 실행
-configs/config_base.yaml (baseline 설정)이용하려면, main.py hydra 설정시 config name을 config_base로 설정
-
-- wandb logging 활성화 시, wandb 가입 후 실행
 
 ### 1. Baseline과 동일한 설정
 ```yaml
@@ -219,6 +239,11 @@ logging:
     project_name: "cv_contest"
     run_name: "exp_001"
 ```
+- WandB 로깅:
+  - enabled: true/false
+  - project_name: 프로젝트명 설정
+  - run_name: 실험명 설정 (실제 실험시, model name, split type 등 조합으로 생성)
+
 ### 3. 실행 방법
 
 baseline 설정으로 실행  

@@ -1,4 +1,4 @@
-# CV Context Baseline Ocde
+# Baseline Code CV Test for Team 1
 ```plaintext
 📦 프로젝트 루트
 ├── 📜 main.py              # 실행 진입점

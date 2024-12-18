@@ -23,7 +23,7 @@ model:
 train:
   img_size: 32
   lr: 1e-3
-  epochs: 10
+  epochs: 60
   batch_size: 32
   num_workers: 0
   early_stopping:

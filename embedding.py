@@ -1,0 +1,253 @@
+import os
+import torch
+import torch.nn as nn
+from torchvision import models, transforms
+from PIL import Image
+import numpy as np
+from sklearn.cluster import KMeans
+from sklearn.metrics import pairwise_distances_argmin_min
+from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
+import glob
+from pathlib import Path
+from tqdm import tqdm
+import json
+# -------------------------
+# 1. Embedding Model Class (변동 없음)
+# -------------------------
+class EmbeddingModel:
+    def __init__(self, model_name="resnet50"):
+        if model_name == "resnet50":
+            self.model = models.resnet50(pretrained=True)
+            self.feature_extractor = nn.Sequential(*list(self.model.children())[:-1])  # Remove FC layer
+        elif model_name == "mobilenet_v2":
+            self.model = models.mobilenet_v2(pretrained=True)
+            self.feature_extractor = nn.Sequential(*list(self.model.children())[:-1])  # Remove FC layer
+        else:
+            raise ValueError("Unsupported model name. Choose 'resnet50' or 'mobilenet_v2'.")
+        self.model.eval()
+        self.preprocess = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+        print(f"EmbeddingModel initialized with {model_name} model")
+    
+    def extract_embedding(self, image_path):
+        img = Image.open(image_path).convert('RGB')
+        input_tensor = self.preprocess(img).unsqueeze(0)  # Add batch dimension
+        with torch.no_grad():
+            embedding = self.feature_extractor(input_tensor).squeeze().numpy()
+        return embedding.ravel()  # Flatten to 1D
+
+# -------------------------
+# 2. Clustering Method Class (변동 없음)
+# -------------------------
+class ClusteringMethod:
+    def __init__(self, method_name="kmeans", **kwargs):
+        if method_name == "kmeans":
+            self.method = KMeans(**kwargs)
+        else:
+            raise ValueError("Unsupported clustering method. Choose 'kmeans'.")
+        print(f"ClusteringMethod initialized with {method_name} method")
+    
+    def fit_predict(self, data):
+        self.labels = self.method.fit_predict(data)
+        return self.labels
+    
+    def get_centroids(self, data):
+        if hasattr(self.method, "cluster_centers_"):  # For KMeans
+            return self.method.cluster_centers_
+        else:
+            raise ValueError("Centroids not available for this clustering method.")
+
+# -------------------------
+# 3. Main Pipeline with Outlier Detection
+# -------------------------
+class EmbeddingClusteringPipeline:
+    def __init__(self, image_paths, embedding_model, clustering_method, output_dir="results"):
+        self.image_paths = image_paths
+        self.embedding_model = embedding_model
+        self.clustering_method = clustering_method
+        self.output_dir = output_dir
+        self.embeddings_dir = os.path.join(output_dir, "embeddings")
+        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(self.embeddings_dir, exist_ok=True)
+        
+    def extract_and_save_embeddings(self):
+        """이미지 임베딩을 추출하고 저장"""
+        print("Extracting and saving embeddings...")
+        embeddings_dict = {}
+        
+        for path in tqdm(self.image_paths):
+            img_name = os.path.basename(path)
+            embedding_path = os.path.join(self.embeddings_dir, f"{os.path.splitext(img_name)[0]}.npy")
+            
+            # 이미 계산된 임베딩이 있는지 확인
+            if os.path.exists(embedding_path):
+                embedding = np.load(embedding_path)
+            else:
+                # 새로운 임베딩 추출 및 저장
+                embedding = self.embedding_model.extract_embedding(path)
+                np.save(embedding_path, embedding)
+            
+            embeddings_dict[path] = embedding
+        
+        self.embeddings = np.array(list(embeddings_dict.values()))
+        return embeddings_dict
+    
+    def process_and_visualize(self):
+        # 1. 임베딩 추출 및 저장
+        print("1. Extracting and saving embeddings...")
+        embeddings_dict = self.extract_and_save_embeddings()
+        
+        # 2. 2차원으로 차원 축소
+        print("2. Reducing dimensions to 2D...")
+        pca = PCA(n_components=2)
+        self.viz_data = pca.fit_transform(self.embeddings)
+        self.viz_data = (self.viz_data - self.viz_data.min(axis=0)) / (self.viz_data.max(axis=0) - self.viz_data.min(axis=0))
+        
+        # 3. 클러스터링
+        print("3. Performing clustering...")
+        self.labels = self.clustering_method.fit_predict(self.viz_data)
+        
+        # 4. 대표 샘플과 아웃라이어 찾기
+        print("4. Finding representative and outlier samples...")
+        self.find_representative_and_outlier_samples()
+        
+        # 5. 결과 저장
+        print("5. Saving results...")
+        self.save_results()
+        
+        # 6. 시각화
+        print("6. Visualizing results...")
+        self.visualize_clusters()
+    
+    def find_representative_and_outlier_samples(self):
+        """각 클러스터의 대표 샘플과 아웃라이어 찾기"""
+        self.representative_samples = []
+        self.outliers = []
+        
+        for label in range(len(np.unique(self.labels))):
+            mask = self.labels == label
+            cluster_points = self.viz_data[mask]
+            cluster_paths = np.array(self.image_paths)[mask]
+            
+            # 클러스터 중심 계산
+            center = cluster_points.mean(axis=0)
+            
+            # 중심까지의 거리 계산
+            distances = np.linalg.norm(cluster_points - center, axis=1)
+            
+            # 대표 샘플 (중심에 가장 가까운 샘플)
+            representative_idx = np.argmin(distances)
+            self.representative_samples.append(cluster_paths[representative_idx])
+            
+            # 아웃라이어 (중심에서 가장 먼 샘플)
+            outlier_idx = np.argmax(distances)
+            self.outliers.append(cluster_paths[outlier_idx])
+    
+    def save_results(self):
+        """클러스터링 결과 저장"""
+        # 클러스터 할당 저장 (numpy.int32를 int로 변환)
+        cluster_assignments = {
+            str(path): int(label)  # path를 문자열로, label을 int로 변환
+            for path, label in zip(self.image_paths, self.labels)
+        }
+        
+        with open(os.path.join(self.output_dir, "cluster_assignments.json"), 'w') as f:
+            json.dump(cluster_assignments, f, indent=2)
+        
+        # 대표 샘플 저장
+        with open(os.path.join(self.output_dir, "representative_samples.txt"), "w") as f:
+            f.write("\n".join(str(path) for path in self.representative_samples))
+        
+        # 아웃라이어 저장
+        with open(os.path.join(self.output_dir, "outlier_samples.txt"), "w") as f:
+            f.write("\n".join(str(path) for path in self.outliers))
+        
+        # 임베딩 메타데이터 저장
+        metadata = {
+            "num_clusters": int(len(np.unique(self.labels))),  # numpy.int32를 int로 변환
+            "num_samples": int(len(self.image_paths)),
+            "embedding_dim": int(self.embeddings.shape[1]),
+            "model_name": self.embedding_model.model.__class__.__name__
+        }
+        
+        with open(os.path.join(self.output_dir, "metadata.json"), 'w') as f:
+            json.dump(metadata, f, indent=2)
+    
+    def visualize_clusters(self):
+        """클러스터 시각화"""
+        plt.figure(figsize=(12, 8))
+        
+        # 클러스터별 색상 지정
+        colors = plt.cm.rainbow(np.linspace(0, 1, len(np.unique(self.labels))))
+        
+        # 먼저 모든 클러스터 포인트를 그립니다
+        unique_labels = np.unique(self.labels)
+        for label, color in zip(unique_labels, colors):
+            cluster_points = self.viz_data[self.labels == label]
+            plt.scatter(cluster_points[:, 0], cluster_points[:, 1], 
+                       color=color,
+                       label=f"Cluster {label}", 
+                       alpha=0.7,
+                       s=100,  # 포인트 크기 더 증가
+                       marker='o',
+                       zorder=2)
+        
+        # Overlay representative samples
+        for cluster_id, rep_sample in enumerate(self.representative_samples):
+            img = Image.open(rep_sample).resize((20, 20))
+            cluster_points = self.viz_data[self.labels == cluster_id]
+            if len(cluster_points) > 0:
+                center = np.mean(cluster_points, axis=0)
+                x, y = center[0], center[1]
+                plt.imshow(np.array(img), 
+                          extent=(x - 0.05, x + 0.05, y - 0.05, y + 0.05),
+                          zorder=3)
+        
+        plt.grid(True, alpha=0.3)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.title("Cluster Visualization with Overlay")
+        
+        # 축 레이블 추가
+        plt.xlabel("First Principal Component")
+        plt.ylabel("Second Principal Component")
+        
+        # 여백 조정
+        plt.tight_layout()
+        
+        plt.savefig(os.path.join(self.output_dir, "cluster_visualization.png"), 
+                    bbox_inches='tight', 
+                    dpi=300)
+        
+        plt.show(block=False)
+        plt.pause(5)
+        plt.close()
+
+# -------------------------
+# 4. Run the Pipeline
+# -------------------------
+if __name__ == "__main__":
+    # Example image paths
+    test_path = Path(__file__).parent / "datasets_fin/test/"
+    test_path = "/home/joon/dataset/cv/test/images"
+    print(f"\n===test_path: {test_path}")
+    image_paths = glob.glob(f"{test_path}/*.jpg")
+    print(f"image_paths: {image_paths}, len: {len(image_paths)}")
+    # Initialize Embedding Model (ResNet50)
+    embedding_model = EmbeddingModel(model_name="mobilenet_v2")
+    
+    # Initialize Clustering Method (KMeans)
+    clustering_method = ClusteringMethod(method_name="kmeans", n_clusters=10, random_state=42)
+    
+    # Run the Pipeline
+    pipeline = EmbeddingClusteringPipeline(
+        image_paths=image_paths,
+        embedding_model=embedding_model,
+        clustering_method=clustering_method,
+        output_dir="cluster_results"
+    )
+    
+    pipeline.process_and_visualize()

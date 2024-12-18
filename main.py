@@ -13,7 +13,7 @@ import torch.nn as nn
 from torch.optim import Adam
 from pathlib import Path
 
-@hydra.main(version_base=None, config_path="./configs", config_name="config_base")
+@hydra.main(version_base=None, config_path="./configs", config_name="config")
 def main(cfg: DictConfig):
     # 주요 설정 출력
     data_path = Path(__file__).parent / cfg.data.path
@@ -47,8 +47,9 @@ def main(cfg: DictConfig):
     except Exception as e:
         print(f"데이터 준비 중 오류 발생: {str(e)}")
         return
-    trn_loader, val_loader, tst_loader = get_dataloaders(data_path, cfg, batch_size=batch_size, 
-                                             num_workers=num_workers, img_size=img_size)
+    trn_loader, val_loader, tst_loader = get_dataloaders(
+                                                        data_path, cfg, batch_size=batch_size, 
+                                                        num_workers=num_workers, img_size=img_size)
 ### Model 준비
     model = get_model(model_name, num_classes=num_classes, pretrained=pretrained)
     model = model.to(device)
@@ -66,8 +67,8 @@ def main(cfg: DictConfig):
 
     # Train (validation 포함)
     trainer = Trainer(model, device, optimizer, loss_fn, 
-                     logger=logger, class_weights=class_weights,
-                     cfg=cfg)
+                    logger=logger, class_weights=class_weights,
+                    cfg=cfg)
     trainer.train(trn_loader, val_loader, epochs)
 
     # Inference

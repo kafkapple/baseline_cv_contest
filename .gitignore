@@ -1,9 +1,13 @@
 # Byte-compiled / optimized / DLL files
+
+
+*.pt
 __pycache__/
 *.py[cod]
 *$py.class
 wandb/
 outputs/
+data/
 datasets_fin/
 __pycache__/
 *.pyc

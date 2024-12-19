@@ -3,11 +3,9 @@
 
 data:
   augmentation: "basic"
-  split_method: "none"
-  path: "datasets_fin"
-  create_dummy: true
-  num_train: 100
-  num_test: 20
+  split_method: "holdout"
+  path: "data"
+
 model:
   name: "resnet34"
   num_classes: 17
@@ -30,6 +28,10 @@ train:
 
 logger:
   use_wandb: true
-  project_name: "ailab_contest_cv_team_1"
   entity: "ailab_upstage_fastcampus"
-  run_name: "baseline_run"
+  project_name: "test_val"
+  metrics:
+    train: ["loss", "accuracy", "f1"]
+    val: ["loss", "accuracy", "f1"]
+    global: ["epoch", "learning_rate"]
+    class_metrics: ["f1"]

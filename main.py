@@ -13,7 +13,7 @@ import torch.nn as nn
 from torch.optim import Adam
 from pathlib import Path
 
-@hydra.main(version_base=None, config_path="./configs", config_name="config")
+@hydra.main(version_base=None, config_path="./configs", config_name="config_base")
 def main(cfg: DictConfig):
     # 주요 설정 출력
     data_path = Path(__file__).parent / cfg.data.path
@@ -57,7 +57,7 @@ def main(cfg: DictConfig):
     loss_fn = nn.CrossEntropyLoss()
 ### Logger 준비
     logger = get_logger(cfg)
-
+    
     # 클래스 가중치 계산
     class_weights = None
     if cfg.model.class_balancing.method == "class_weight":
@@ -79,7 +79,10 @@ def main(cfg: DictConfig):
     sample_df.to_csv("pred.csv", index=False)
     print(sample_df.head())
 
+    # 모델 가중치 저장 및 로깅
     if logger is not None:
+        model_path = "model.pt"
+        torch.save(model.state_dict(), model_path)
         logger.finish()
 
 def save_checkpoint(model, optimizer, epoch, path):

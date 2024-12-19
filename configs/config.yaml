@@ -7,7 +7,7 @@ data:
   n_splits: 5  # for kfold
   test_size: 0.2  # validation 사용
   fold_index: 0  # which fold to use as validation in kfold
-  path: "datasets_fin"
+  path: "data"
   create_dummy: true
   num_train: 100
   num_test: 20

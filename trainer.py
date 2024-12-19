@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 from sklearn.metrics import accuracy_score, f1_score
+import numpy as np
+from typing import Dict, Any, Optional
 
 class Trainer:
     def __init__(self, model, device, optimizer, loss_fn, logger=None, class_weights=None, cfg=None):
@@ -39,6 +41,22 @@ class Trainer:
         
         return preds_list
 
+    def _calculate_metrics(self, preds_array: np.ndarray, targets_array: np.ndarray, loss: float, prefix: str = "train") -> Dict[str, Any]:
+        """공통 메트릭 계산 함수"""
+        metrics = {
+            f"{prefix}/loss": loss,
+            f"{prefix}/accuracy": accuracy_score(targets_array, preds_array),
+            f"{prefix}/f1": f1_score(targets_array, preds_array, average='macro')
+        }
+        
+        # 클래스별 F1 계산
+        if self.logger is not None:
+            class_f1 = f1_score(targets_array, preds_array, average=None)
+            for i, f1 in enumerate(class_f1):
+                metrics[f"{prefix}/f1_class_{i}"] = f1
+        
+        return metrics
+
     def train_one_epoch(self, loader):
         self.model.train()
         train_loss = 0
@@ -58,79 +76,82 @@ class Trainer:
             targets_list.extend(targets.detach().cpu().numpy())
 
         train_loss /= len(loader)
-        train_acc = accuracy_score(targets_list, preds_list)
-        train_f1 = f1_score(targets_list, preds_list, average='macro')
+        preds_array = np.array(preds_list)
+        targets_array = np.array(targets_list)
         
-        metrics = {
-            "train_loss": train_loss, 
-            "train_acc": train_acc, 
-            "train_f1": train_f1
-        }
-        
-        # wandb logging을 위한 클래스별 F1 score (출력하지는 않음)
-        if self.logger is not None:
-            class_f1 = f1_score(targets_list, preds_list, average=None)
-            for i, f1 in enumerate(class_f1):
-                metrics[f"train_f1_class_{i}"] = f1
-            
-        return metrics
+        return self._calculate_metrics(preds_array, targets_array, train_loss, "train")
 
-    def evaluate(self, loader, prefix="val"):
-        """Evaluate model on validation/test data"""
+    def evaluate(self, loader):
         self.model.eval()
-        total_loss = 0
+        val_loss = 0
         preds_list = []
         targets_list = []
 
         with torch.no_grad():
-            for image, targets in tqdm(loader, desc=f"{prefix.capitalize()} Evaluation"):
+            for image, targets in tqdm(loader, desc="Validation"):
                 image, targets = image.to(self.device), targets.to(self.device)
                 preds = self.model(image)
                 loss = self.loss_fn(preds, targets)
-                
-                total_loss += loss.item()
-                preds_list.extend(preds.argmax(dim=1).cpu().numpy())
-                targets_list.extend(targets.cpu().numpy())
 
-        avg_loss = total_loss / len(loader)
-        acc = accuracy_score(targets_list, preds_list)
-        f1 = f1_score(targets_list, preds_list, average='macro')
-        
-        return {
-            f"{prefix}_loss": avg_loss,
-            f"{prefix}_acc": acc,
-            f"{prefix}_f1": f1
-        }
+                val_loss += loss.item()
+                preds_list.extend(preds.argmax(dim=1).detach().cpu().numpy())
+                targets_list.extend(targets.detach().cpu().numpy())
+
+        val_loss /= len(loader)
+        preds_array = np.array(preds_list)
+        targets_array = np.array(targets_list)
+
+        return self._calculate_metrics(preds_array, targets_array, val_loss, "val")
 
     def train(self, train_loader, val_loader, epochs):
         for epoch in range(epochs):
+            # 학습
             train_metrics = self.train_one_epoch(train_loader)
             
-            if val_loader is not None:
-                val_metrics = self.evaluate(val_loader)
-                # validation 관련 로깅
-                metrics = {**train_metrics, **val_metrics, "epoch": epoch}
-                if self.logger is not None:
-                    self.logger.log(metrics)
-                print(f"Epoch {epoch+1}/{epochs}")
-                print(f"Train - Loss: {train_metrics['train_loss']:.4f}, F1: {train_metrics['train_f1']:.4f}")
-                print(f"Val   - Loss: {val_metrics['val_loss']:.4f}, F1: {val_metrics['val_f1']:.4f}")
-            else:
-                # validation 없이 training 메트릭만 로깅
-                if self.logger is not None:
-                    self.logger.log(train_metrics)
-                print(f"Epoch {epoch+1}/{epochs}")
-                print(f"Train - Loss: {train_metrics['train_loss']:.4f}, F1: {train_metrics['train_f1']:.4f}")
+            # 검증
+            val_metrics = self.evaluate(val_loader) if val_loader is not None else {}
             
-            print("-" * 50)
-
-    def inference(self, loader):
-        self.model.eval()
-        preds_list = []
-        with torch.no_grad():
-            for image, _ in tqdm(loader, desc="Inference"):
-                image = image.to(self.device)
-                preds = self.model(image)
-                preds_list.extend(preds.argmax(dim=1).detach().cpu().numpy())
-        return preds_list
+            # 전역 메트릭 추가
+            metrics = {
+                **train_metrics,
+                **val_metrics,
+                "global/epoch": epoch,
+                "global/learning_rate": self.optimizer.param_groups[0]['lr']
+            }
+            
+            # 로깅
+            if self.logger is not None:
+                self.logger.log(metrics)
+            
+            # 결과 출력
+            self._print_metrics(epoch, epochs, train_metrics, val_metrics)
+    
+    def _print_metrics(self, epoch: int, total_epochs: int, train_metrics: Dict[str, float], val_metrics: Dict[str, float]):
+        """메트릭 출력 함수"""
+        print(f"\nEpoch {epoch+1}/{total_epochs}")
+        
+        # 학습 메트릭 출력
+        print(f"Train - Loss: {train_metrics['train/loss']:.4f}, "
+              f"Acc: {train_metrics['train/accuracy']:.4f}, "
+              f"F1: {train_metrics['train/f1']:.4f}")
+        
+        # 검증 메트릭 출력 (있는 경우)
+        if val_metrics:
+            print(f"Val   - Loss: {val_metrics['val/loss']:.4f}, "
+                  f"Acc: {val_metrics['val/accuracy']:.4f}, "
+                  f"F1: {val_metrics['val/f1']:.4f}")
+        
+        # 클래스별 F1 출력
+        # if self.cfg.model.num_classes > 1:
+        #     print("\nClass-wise F1 scores:")
+        #     print("Train:", end=" ")
+        #     for i in range(self.cfg.model.num_classes):
+        #         print(f"Class {i}: {train_metrics[f'train/f1_class_{i}']:.4f}", end="  ")
+            
+        #     if val_metrics:
+        #         print("\nVal  :", end=" ")
+        #         for i in range(self.cfg.model.num_classes):
+        #             print(f"Class {i}: {val_metrics[f'val/f1_class_{i}']:.4f}", end="  ")
+            
+            print()
         

@@ -41,49 +41,75 @@ def get_transforms(img_size=32):
     return trn_transform, tst_transform
 
 def data_prep(data_path, cfg: DictConfig):
-    
-    
-    create_dummy = cfg.data.get("create_dummy", False)
-    num_classes = cfg.data.get("num_classes", 17)
-    img_size = cfg.data.get("img_size", 32)
-
-# dummy data 생성
-    if create_dummy and not os.path.exists(data_path / "train.csv"):
-        num_train = cfg.data.get("num_train", 100)
-        num_test = cfg.data.get("num_test", 20)
-        create_dummy_dataset(root=data_path, num_train=num_train, num_test=num_test, num_classes=num_classes, img_size=img_size)
-
+    """데이터 준비 함수"""
     # baseline 의 경우, split 없이 train 전체 사용
     if cfg.data.split_method == "none":
         # validation split 없이 전체 데이터를 training에 사용
-        print(data_path)
-        train_df = pd.read_csv(data_path /"train.csv")
+        print(f"데이터 경로: {data_path}")
+        train_df = pd.read_csv(data_path / "train.csv")
         train_df.to_csv(data_path / "train_fold.csv", index=False)
         return
     else:
+        # 데이터 분할이 필요한 경우
         df = pd.read_csv(data_path / "train.csv")
         data_split(df, data_path, cfg)
 #rain 에서  validation 과 test 를 분리하여 사용
+def print_distribution(train_df, val_df=None):
+    """데이터 분포를 가로(landscape) 테이블 형식으로 출력"""
+    print("\n=== 데이터 분포 ===")
+    
+    # 모든 클래스 목록 준비
+    all_classes = sorted(train_df['target'].unique())
+    
+    # 헤더 출력
+    header_line = "데이터셋     총계    |"
+    for cls in all_classes:
+        header_line += f" 클래스{cls:02d} |"
+    print("\n" + "-" * len(header_line))
+    print(header_line)
+    print("-" * len(header_line))
+    
+    # 훈련 데이터 분포
+    train_dist = train_df['target'].value_counts(normalize=True) * 100
+    train_counts = train_df['target'].value_counts()
+    
+    train_line = f"훈련      {len(train_df):5,d}  |"
+    for cls in all_classes:
+        count = train_counts.get(cls, 0)
+        pct = train_dist.get(cls, 0)
+        train_line += f" {count:4d}({pct:4.1f}%) |"
+    print(train_line)
+    
+    # 검증 데이터가 있는 경우
+    if val_df is not None:
+        val_dist = val_df['target'].value_counts(normalize=True) * 100
+        val_counts = val_df['target'].value_counts()
+        
+        val_line = f"검증      {len(val_df):5,d}  |"
+        for cls in all_classes:
+            count = val_counts.get(cls, 0)
+            pct = val_dist.get(cls, 0)
+            val_line += f" {count:4d}({pct:4.1f}%) |"
+        print(val_line)
+    
+    print("-" * len(header_line))
+    print()
+
 def data_split(df, data_path, cfg: DictConfig):
     split_method = cfg.data.split_method
     n_splits = cfg.data.get("n_splits", 5)
     fold_index = cfg.data.get("fold_index", 0)
     test_size = cfg.data.get("test_size", 0.2)
+    
     if split_method == "holdout":
-        # 간단한 holdout split (80:20 예)
+        # 간단한 holdout split
         train_df, val_df = train_test_split(df, test_size=test_size)
-        print("\n훈련 데이터 분포:")
-        print(train_df['target'].value_counts(normalize=True))
-
-        print("\n검증 데이터 분포:")
-        print(val_df['target'].value_counts(normalize=True))
+        print_distribution(train_df, val_df)
+        
     elif split_method == "stratified_holdout":
         train_df, val_df = train_test_split(df, test_size=test_size, stratify=df['target'])
-        print("\n훈련 데이터 분포:")
-        print(train_df['target'].value_counts(normalize=True))
-
-        print("\n검증 데이터 분포:")
-        print(val_df['target'].value_counts(normalize=True))
+        print_distribution(train_df, val_df)
+        
     else:
         # K-fold or Stratified K-fold
         if split_method == "kfold":
@@ -92,30 +118,28 @@ def data_split(df, data_path, cfg: DictConfig):
             kf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
         else:
             raise ValueError("Unsupported split_method")
-        for fold, (train_idx, val_idx) in enumerate(kf.split(df, df['target'])):
-            train_fold = df.iloc[train_idx]
-            val_fold = df.iloc[val_idx]
             
-            print(f"\nFold {fold+1} 분포:")
-            print("훈련 세트:", train_fold['target'].value_counts(normalize=True))
-            print("검증 세트:", val_fold['target'].value_counts(normalize=True))
         # fold별로 인덱스 분할
         folds = list(kf.split(df['ID'], df['target']))
         train_idx, val_idx = folds[fold_index]
-
+        
         train_df = df.iloc[train_idx].reset_index(drop=True)
         val_df = df.iloc[val_idx].reset_index(drop=True)
+        
+        print(f"\n=== Fold {fold_index + 1}/{n_splits} ===")
+        print_distribution(train_df, val_df)
 
     # 클래스 밸런싱 적용
     if cfg.model.class_balancing.method == "oversample":
+        original_train_df = train_df.copy()
         train_df = apply_oversampling(
             train_df, 
             strategy=cfg.model.class_balancing.oversample_strategy
         )
-        print("\n오버샘플링 후 훈련 데이터 분포:")
-        print(train_df['target'].value_counts(normalize=True))
+        print("\n=== 오버샘플링 후 분포 ===")
+        print_distribution(train_df)
 
-    # 분할 결과 csv 저장 (data.py에서 이 파일을 사용)
+    # 분할 결과 csv 저장
     train_df.to_csv(data_path / "train_fold.csv", index=False)
     val_df.to_csv(data_path / "val_fold.csv", index=False)
     # --- 추가 종료 ---# 

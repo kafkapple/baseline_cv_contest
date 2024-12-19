@@ -1,95 +1,186 @@
 # logger.py
 import wandb
 from omegaconf import DictConfig, OmegaConf
+from typing import Dict, Any, Optional, List
 
-class WandbLogger:
-    def __init__(self, project_name, entity, run_name):
-        # run 객체를 변수로 들고 있게 함.
-        self.run = wandb.init(project=project_name, entity = entity, name=run_name)
+class MetricLogger:
+    """Base class for metric logging"""
+    def __init__(self):
+        self.metric_groups = {
+            "train": ["loss", "accuracy", "f1"],
+            "val": ["loss", "accuracy", "f1"],
+            "global": ["epoch", "learning_rate"]
+        }
+        self.class_metrics = ["f1"]  # metrics to calculate per class
+
+class ExperimentInfo:
+    """Experiment information management class"""
+    def __init__(self, cfg: DictConfig):
+        self.data_config = {
+            "augmentation": cfg.data.augmentation,
+            "split_method": cfg.data.split_method,
+            "test_size": cfg.data.get("test_size", 0.2),
+        }
+        
+        self.model_config = {
+            "name": cfg.model.name,
+            "num_classes": cfg.model.num_classes,
+            "pretrained": cfg.model.pretrained,
+            "class_balancing": cfg.model.class_balancing.method,
+            "domain_adaptation": cfg.model.domain_adaptation.method
+        }
+        
+        self.train_config = {
+            "epochs": cfg.train.epochs,
+            "batch_size": cfg.train.batch_size,
+            "img_size": cfg.train.img_size,
+            "learning_rate": cfg.train.lr,
+            "early_stopping": cfg.train.early_stopping.enabled,
+            "mixed_precision": cfg.train.mixed_precision.enabled
+        }
     
-    def log(self, metrics, step=None):
-        wandb.log(metrics, step=step)
+    def get_tags(self) -> List[str]:
+        """Convert key information to tags"""
+        return [
+            f"model_{self.model_config['name']}",
+            f"split_{self.data_config['split_method']}",
+            f"aug_{self.data_config['augmentation']}",
+            f"bal_{self.model_config['class_balancing']}"
+        ]
+    
+    def get_run_name(self) -> str:
+        """Generate experiment name"""
+        return "_".join([
+            f"Aug_{self.data_config['augmentation']}",
+            f"Split_{self.data_config['split_method']}",
+            f"Model_{self.model_config['name']}",
+            f"CB_{self.model_config['class_balancing']}",
+            f"DA_{self.model_config['domain_adaptation']}"
+        ])
+    
+    def print_summary(self):
+        """Print experiment configuration summary"""
+        print("\n=== Experiment Configuration ===")
+        print("\n[Data Configuration]")
+        for k, v in self.data_config.items():
+            print(f"{k:15s}: {v}")
+            
+        print("\n[Model Configuration]")
+        for k, v in self.model_config.items():
+            print(f"{k:15s}: {v}")
+            
+        print("\n[Training Configuration]")
+        for k, v in self.train_config.items():
+            print(f"{k:15s}: {v}")
+        print("=" * 40 + "\n")
+
+class WandbLogger(MetricLogger):
+    def __init__(
+        self,
+        project_name: str,
+        entity: str,
+        experiment_info: ExperimentInfo,
+        cfg: Optional[DictConfig] = None
+    ):
+        super().__init__()
+        
+        run_name = get_unique_run_name(
+            project_name=project_name,
+            base_name=experiment_info.get_run_name(),
+            entity=entity
+        )
+        
+        self.run = wandb.init(
+            project=project_name,
+            entity=entity,
+            name=run_name,
+            config=self._flatten_config(cfg) if cfg else None,
+            tags=experiment_info.get_tags()
+        )
+        
+        # Define metric groups
+        for group in self.metric_groups:
+            self.run.define_metric(f"{group}/*", step_metric="global/epoch")
+
+    def _flatten_config(self, cfg: DictConfig) -> Dict[str, Any]:
+        """Convert config to flattened dictionary"""
+        if cfg is None:
+            return {}
+        
+        # Keys to exclude
+        exclude_keys = {
+            'hydra', 'wandb', 'distribution', 
+            'parameters', 'defaults', '_target_'
+        }
+        
+        config_dict = OmegaConf.to_container(
+            cfg,
+            resolve=True,
+            enum_to_str=True,
+        )
+        flattened = {}
+        
+        def _flatten(d: Dict, prefix: str = ''):
+            if d is None:
+                return
+                
+            for k, v in d.items():
+                if k in exclude_keys:
+                    continue
+                    
+                new_key = f"{prefix}.{k}" if prefix else k
+                
+                if isinstance(v, dict) and v:
+                    if 'distribution' not in v:
+                        _flatten(v, new_key)
+                else:
+                    if v is not None and not isinstance(v, dict):
+                        flattened[new_key] = v
+                        
+        _flatten(config_dict)
+        return flattened
+
+    def log(self, metrics: Dict[str, Any], step: Optional[int] = None):
+        """Log metrics"""
+        if self.run is not None:
+            # Filter out None values
+            filtered_metrics = {
+                k: v for k, v in metrics.items() 
+                if v is not None
+            }
+            self.run.log(filtered_metrics, step=step)
 
     def finish(self):
-        # 현재 wandb run을 명시적으로 종료
-        wandb.finish()
-import re
+        """Finish the wandb run"""
+        if self.run is not None:
+            self.run.finish()
 
-def get_unique_run_name(project_name, base_name, entity=None):
-    """
-    기존 run names를 확인하고 중복되지 않는 unique run name을 생성합니다.
-    
-    Args:
-        project_name (str): WandB 프로젝트 이름
-        base_name (str): 기본 이름 (e.g., model_name_split_type)
-        entity (str): WandB team/organization 이름 (옵션)
-    
-    Returns:
-        str: 중복되지 않는 run name
-    """
-    # API 연결
+def get_unique_run_name(project_name: str, base_name: str, entity: Optional[str] = None) -> str:
+    """Generate unique run name"""
     api = wandb.Api()
     runs = api.runs(f"{entity}/{project_name}" if entity else project_name)
-
-    # 프로젝트 내 모든 run name 가져오기
+    
     existing_names = [run.name for run in runs if run.name]
-
-    # 중복되지 않는 이름 찾기
     unique_name = base_name
     counter = 0
-
+    
     while unique_name in existing_names:
         counter += 1
         unique_name = f"{base_name}_{counter}"
-
-    return unique_name
-def get_logger(cfg: DictConfig):
-    logger = None
-    use_wandb = cfg.logger.use_wandb
-    project_name = cfg.logger.project_name
-    run_name = cfg.logger.run_name
-    entity = cfg.logger.entity
-    if use_wandb:
-        run_name = f"Aug_{cfg.data.augmentation}_Split_{cfg.data.split_method}_ClassBal_{cfg.model.class_balancing.method}_Model_{cfg.model.name}_DA_{cfg.model.domain_adaptation.method}_EarlyStop_{cfg.train.early_stopping.enabled}"
-        run_name = get_unique_run_name(project_name, run_name, entity)
-        
-        logger = WandbLogger(project_name=project_name, entity=entity, run_name=run_name)
-        
-        # 실험 추적을 위한 주요 정보 추가
-        experiment_config = {
-            # 모델 관련 정보
-            "model.name": cfg.model.name,
-            "model.pretrained": cfg.model.pretrained,
-            "model.num_classes": cfg.model.num_classes,
-            
-            # 데이터 관련 정보
-            "data.split_method": cfg.data.split_method,
-            "data.n_splits": cfg.data.get("n_splits", 5),
-            "data.fold_index": cfg.data.get("fold_index", 0),
-            
-            # 학습 관련 정보
-            "train.batch_size": cfg.train.batch_size,
-            "train.learning_rate": cfg.train.lr,
-            "train.epochs": cfg.train.epochs,
-            "train.image_size": cfg.train.img_size,
-        }
-        
-        # 기존 config와 통합
-        config_dict = OmegaConf.to_container(cfg, resolve=True)
-        flattened_dict = {}
-        
-        def flatten_dict(d, parent_key=''):
-            for k, v in d.items():
-                new_key = f"{parent_key}.{k}" if parent_key else k
-                if isinstance(v, dict):
-                    flatten_dict(v, new_key)
-                else:
-                    flattened_dict[new_key] = v
-        
-        flatten_dict(config_dict)
-        
-        # 실험 config와 기존 config 통합
-        flattened_dict.update(experiment_config)
-        wandb.config.update(flattened_dict)
     
-    return logger
+    return unique_name
+
+def get_logger(cfg: DictConfig) -> Optional[WandbLogger]:
+    """Create logger based on config"""
+    if not cfg.logger.use_wandb:
+        return None
+    
+    experiment_info = ExperimentInfo(cfg)
+    experiment_info.print_summary()
+    
+    return WandbLogger(
+        project_name=cfg.logger.project_name,
+        entity=cfg.logger.entity,
+        experiment_info=experiment_info,
+        cfg=cfg
+    )

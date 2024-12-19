@@ -312,3 +312,35 @@ if __name__ == "__main__":
     )
     
     pipeline.process_and_visualize()
+
+def save_embeddings(model, data_loader, device, cfg):
+    """모델의 중간 레이어 임베딩을 추출하고 저장"""
+    output_dir = Path(cfg.output_dir)
+    output_dir.mkdir(exist_ok=True)
+    
+    model.eval()
+    embeddings = []
+    labels = []
+    
+    with torch.no_grad():
+        for images, targets in tqdm(data_loader, desc="Extracting embeddings"):
+            images = images.to(device)
+            # 예시: ResNet의 경우 avgpool 이전 레이어의 출력을 사용
+            features = model.get_features(images)  # 모델에 get_features 메서드 필요
+            embeddings.append(features.cpu().numpy())
+            labels.extend(targets.numpy())
+    
+    embeddings = np.concatenate(embeddings, axis=0)
+    labels = np.array(labels)
+    
+    # 저장
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_path = output_dir / f"embeddings_{timestamp}.npz"
+    np.savez(
+        save_path,
+        embeddings=embeddings,
+        labels=labels
+    )
+    
+    print(f"Embeddings saved to {save_path}")
+    return save_path

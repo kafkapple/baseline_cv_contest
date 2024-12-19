@@ -6,8 +6,8 @@ seed: 42
 output_dir: "outputs"
 
 data:
-  augmentation: "basic"
-  split_method: "holdout"
+  augmentation: "advanced"
+  split_method: "stratified_kfold"
   val_size: 0.2  # validation 사용
   path: "data/raw"
   url: "https://aistages-api-public-prod.s3.amazonaws.com/app/Competitions/000341/data/data.tar.gz"
@@ -18,12 +18,12 @@ model:
   num_classes: 17
   pretrained: true
   domain_adaptation:
-    method: "none" #"tta"
+    method: "adabn" #"tta"
     tta_steps: 100
     tta_lr: 0.0001
 
 train:
-  epochs: 70
+  epochs: 50
   batch_size: 32
   img_size: 32
   lr: 1e-3

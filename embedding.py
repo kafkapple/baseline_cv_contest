@@ -12,6 +12,7 @@ import glob
 from pathlib import Path
 from tqdm import tqdm
 import json
+import datetime
 # -------------------------
 # 1. Embedding Model Class (변동 없음)
 # -------------------------
@@ -65,15 +66,20 @@ class ClusteringMethod:
 # 3. Main Pipeline with Outlier Detection
 # -------------------------
 class EmbeddingClusteringPipeline:
-    def __init__(self, image_paths, embedding_model, clustering_method, output_dir="results"):
+    def __init__(self, image_paths, embedding_model, clustering_method, n_images=3, output_dir="results"):
         self.image_paths = image_paths
         self.embedding_model = embedding_model
         self.clustering_method = clustering_method
-        self.output_dir = output_dir
-        self.embeddings_dir = os.path.join(output_dir, "embeddings")
-        os.makedirs(output_dir, exist_ok=True)
+        
+        # 타임스탬프 기반 하위 폴더 생성
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.output_dir = os.path.join(output_dir, timestamp)
+        self.embeddings_dir = os.path.join(self.output_dir, "embeddings")
+        
+        os.makedirs(self.output_dir, exist_ok=True)
         os.makedirs(self.embeddings_dir, exist_ok=True)
         
+        self.n_images = n_images
     def extract_and_save_embeddings(self):
         """이미지 임베딩을 추출하고 저장"""
         print("Extracting and saving embeddings...")
@@ -118,6 +124,10 @@ class EmbeddingClusteringPipeline:
         # 5. 결과 저장
         print("5. Saving results...")
         self.save_results()
+        
+        # 5.1 HTML 보고서 저장
+        print("5.1 Saving HTML report...")
+        self.save_html_report()  # 각 클러스터별 대표 샘플 n개 저장
         
         # 6. 시각화
         print("6. Visualizing results...")
@@ -184,7 +194,7 @@ class EmbeddingClusteringPipeline:
         # 클러스터별 색상 지정
         colors = plt.cm.rainbow(np.linspace(0, 1, len(np.unique(self.labels))))
         
-        # 먼저 모든 클러스터 포인트를 그립니다
+        # 먼든 클러스터 포인트를 그립니다
         unique_labels = np.unique(self.labels)
         for label, color in zip(unique_labels, colors):
             cluster_points = self.viz_data[self.labels == label]
@@ -196,20 +206,9 @@ class EmbeddingClusteringPipeline:
                        marker='o',
                        zorder=2)
         
-        # Overlay representative samples
-        for cluster_id, rep_sample in enumerate(self.representative_samples):
-            img = Image.open(rep_sample).resize((20, 20))
-            cluster_points = self.viz_data[self.labels == cluster_id]
-            if len(cluster_points) > 0:
-                center = np.mean(cluster_points, axis=0)
-                x, y = center[0], center[1]
-                plt.imshow(np.array(img), 
-                          extent=(x - 0.05, x + 0.05, y - 0.05, y + 0.05),
-                          zorder=3)
-        
         plt.grid(True, alpha=0.3)
         plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        plt.title("Cluster Visualization with Overlay")
+        plt.title("Cluster Visualization")
         
         # 축 레이블 추가
         plt.xlabel("First Principal Component")
@@ -225,29 +224,91 @@ class EmbeddingClusteringPipeline:
         plt.show(block=False)
         plt.pause(5)
         plt.close()
+    
+    def save_html_report(self):
+        """각 클러스터의 대표 샘플을 HTML 보고서로 저장"""
+        # 이미지를 저장할 디렉토리 생성
+        images_dir = os.path.join(self.output_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
+        
+        html_content = """
+        <html>
+        <head>
+            <title>Cluster Report</title>
+            <style>
+                .cluster-container { margin-bottom: 30px; }
+                .image-container { display: inline-block; margin: 10px; text-align: center; }
+                img { margin-bottom: 5px; }
+            </style>
+        </head>
+        <body>
+        <h1>Cluster Report</h1>
+        """
+        
+        for label in range(len(np.unique(self.labels))):
+            html_content += f'<div class="cluster-container"><h2>Cluster {label}</h2>'
+            mask = self.labels == label
+            cluster_paths = np.array(self.image_paths)[mask]
+            cluster_points = self.viz_data[mask]
+            
+            # 중심까지의 거리 계산
+            center = cluster_points.mean(axis=0)
+            distances = np.linalg.norm(cluster_points - center, axis=1)
+            
+            # 거리 기준으로 정렬하여 상위 n개 선택
+            sorted_indices = np.argsort(distances)[:self.n_images]
+            representative_samples = cluster_paths[sorted_indices]
+            
+            for i, sample in enumerate(representative_samples):
+                # 이미지 파일 복사
+                img_filename = f"cluster_{label}_sample_{i}_{os.path.basename(sample)}"
+                img_dest_path = os.path.join(images_dir, img_filename)
+                try:
+                    import shutil
+                    shutil.copy2(sample, img_dest_path)
+                    
+                    # HTML에 상대 경로로 이미지 추가 (./images/로 시작하는 상대 경로 사용)
+                    relative_path = f"./images/{img_filename}"
+                    html_content += f"""
+                    <div class="image-container">
+                        <img src="{relative_path}" width="200">
+                        <p>File: {os.path.basename(sample)}</p>
+                        <p>Distance from center: {distances[sorted_indices[i]]:.4f}</p>
+                    </div>
+                    """
+                except Exception as e:
+                    print(f"Error copying image {sample}: {str(e)}")
+            
+            html_content += "</div>"
+        
+        html_content += "</body></html>"
+        
+        with open(os.path.join(self.output_dir, "cluster_report.html"), "w") as f:
+            f.write(html_content)
 
 # -------------------------
 # 4. Run the Pipeline
 # -------------------------
 if __name__ == "__main__":
     # Example image paths
-    test_path = Path(__file__).parent / "datasets_fin/test/"
-    test_path = "/home/joon/dataset/cv/test/images"
+    test_path = Path(__file__).parent / "data/test/"
+    #test_path = "/home/joon/dataset/cv/test/images"
     print(f"\n===test_path: {test_path}")
     image_paths = glob.glob(f"{test_path}/*.jpg")
-    print(f"image_paths: {image_paths}, len: {len(image_paths)}")
+    print(f"image len: {len(image_paths)}")
     # Initialize Embedding Model (ResNet50)
     embedding_model = EmbeddingModel(model_name="mobilenet_v2")
     
     # Initialize Clustering Method (KMeans)
-    clustering_method = ClusteringMethod(method_name="kmeans", n_clusters=10, random_state=42)
+    clustering_method = ClusteringMethod(method_name="kmeans", n_clusters=17, random_state=42)
     
     # Run the Pipeline
     pipeline = EmbeddingClusteringPipeline(
         image_paths=image_paths,
         embedding_model=embedding_model,
         clustering_method=clustering_method,
-        output_dir="cluster_results"
+        n_images=10,
+        output_dir="outputs/embedding"
     )
     
     pipeline.process_and_visualize()

@@ -40,8 +40,10 @@ class Logger:
                 entity=cfg.logger.entity,
                 project=cfg.logger.project_name,
                 name=run_name,
+                id=self.experiment_id,
                 tags=tags,
                 config=config,
+                reinit=True
             )
             
             # 메트릭 정의 (init 이후에)

@@ -41,7 +41,7 @@ model:
   #   - vit_large_patch16_224: 큰 버전
   #   - vit_tiny_patch16_224: 매우 작은 버전
   #   - 이미지 크기 224x224 고정
-  name: "efficientnet_b1"  # 콜론 제거
+  name: "efficientnet_b3"  # 콜론 제거
   num_classes: 17
   pretrained: true  # true: pretrained weights 사용, false: random init
   init_method: "xavier_uniform"  # none, xavier_uniform, xavier_normal, kaiming_uniform, kaiming_normal
@@ -63,9 +63,9 @@ model:
     tta_lr: 0.0001  # tta 적용 시 learning rate
 
 train:
-  epochs: 1
+  epochs: 10
   batch_size: 32
-  img_size: 240
+  img_size: 300
   lr: 1e-3
   num_workers: 0
   early_stopping:
@@ -77,10 +77,11 @@ train:
 
 logger:
   use_wandb: true
-  save_interval: none   # 모델 저장 주기
+  save_interval: none
   entity: "ailab_upstage_fastcampus"
   project_name: "ailab_contest_cv_team_1"
+  reinit: true
   metrics:
-    epoch: ["loss", "accuracy", "f1"]   # 에폭 단�� 메트릭
+    epoch: ["loss", "accuracy", "f1"]
     global: ["epoch", "learning_rate"]
     class_metrics: ["f1"]

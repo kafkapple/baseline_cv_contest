@@ -36,16 +36,12 @@ class ImageDataset(Dataset):
         row = self.df.iloc[idx]
         img_path = os.path.join(self.img_dir, row['ID'])
         img = np.array(Image.open(img_path).convert('RGB'))
-        
         if self.transform:
-            base_transform, aug_transform = self.transform
-            # validation/test는 base_transform만 적용
-            img = base_transform(image=img)['image']
-        
+            img = self.transform(image=img)['image']
         return img, row['target']
 
 def get_transforms(img_size: int, augment: str = "basic"):
-    """이미지 전처리 및 augmentation 함수 분리"""
+    """이미지 전처리 및 augmentation 함수"""
     # 1. 기본 전처리 (모든 데이터셋 공통)
     base_transform = A.Compose([
         A.Resize(img_size, img_size),
@@ -55,16 +51,20 @@ def get_transforms(img_size: int, augment: str = "basic"):
     
     # 2. Augmentation (train only)
     if augment == "none":
-        aug_transform = None
+        return base_transform
     elif augment == "basic":
-        aug_transform = A.Compose([
+        return A.Compose([
+            A.Resize(img_size, img_size),
             A.HorizontalFlip(p=0.2),
             A.VerticalFlip(p=0.2),
             A.GaussNoise(var_limit=(5.0, 20.0), p=0.2),
-            A.Rotate(limit=30, p=0.2)
+            A.Rotate(limit=30, p=0.2),
+            A.Normalize(),
+            ToTensorV2(),
         ])
     elif augment == "advanced":
-        aug_transform = A.Compose([
+        return A.Compose([
+            A.Resize(img_size, img_size),
             A.OneOf([
                 A.RandomRotate90(p=0.5),
                 A.Rotate(limit=30, p=0.5),
@@ -99,9 +99,9 @@ def get_transforms(img_size: int, augment: str = "basic"):
                 rotate_limit=0,
                 p=0.3
             ),
+            A.Normalize(),
+            ToTensorV2(),
         ])
-    
-    return base_transform, aug_transform
 
 def print_class_distribution(counts: dict, title: str = "Class Distribution"):
     """클래스 분포를 테이블로 출력"""
@@ -161,8 +161,8 @@ class BalancedImageDataset(Dataset):
                 target_count=cfg.data.get('target_count', None)
             )
             
-            # HTML 보고서 생성 (augmentation 예시)
-            self.create_augmentation_report()
+            # Augmentation 예시 이미지 저장 및 보고서 생성
+            self.save_augmentation_examples(transform)
         else:
             self.augment_factors = {cls: 1 for cls in self.class_counts}
         
@@ -192,45 +192,67 @@ class BalancedImageDataset(Dataset):
         image = np.array(image)
         
         if self.transform:
-            base_transform, aug_transform = self.transform
-            
-            if aug_transform:
-                # Augmentation 적용 (normalize 이전)
-                image = aug_transform(image=image)['image']
-            
-            # 기본 전처리 적용 (normalize 포함)
-            image = base_transform(image=image)['image']
+            image = self.transform(image=image)['image']
         
         return image, row['target']
 
-    def create_augmentation_report(self):
-        """Augmentation 결과 HTML 보고서 생성"""
-        from src.embedding import DatasetVisualizer
+    def save_augmentation_examples(self, transform):
+        """Augmentation 예시 이미지 저장 및 보고서 생성"""
+        # Augmentation만 적용하기 위한 transform 생성
+        aug_transform = A.Compose([t for t in transform.transforms 
+                                 if not isinstance(t, (A.Normalize, ToTensorV2))])
         
         # 타임스탬프는 한 번만 생성
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_dir = f"outputs/report_augmented/{timestamp}"
+        report_dir = self.project_root / f"outputs/report_augmented/{timestamp}"
+        images_dir = report_dir / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 각 클래스별로 샘플 이미지 저장
+        for cls in self.class_counts.keys():
+            cls_df = self.df[self.df['target'] == cls]
+            selected_rows = cls_df.sample(n=min(5, len(cls_df)), random_state=42)
+            
+            for _, row in selected_rows.iterrows():
+                img_path = self.img_dir / row['ID']
+                image = np.array(Image.open(img_path).convert('RGB'))
+                
+                # 원본 이미지 저장
+                Image.fromarray(image).save(
+                    images_dir / f"class_{cls}_orig_{row['ID']}"
+                )
+                
+                # Augmented 이미지 저장 (normalize 이전)
+                aug_image = aug_transform(image=image)['image']
+                Image.fromarray(aug_image).save(
+                    images_dir / f"class_{cls}_aug_{row['ID']}"
+                )
+        
+        # HTML 보고서 생성
+        self.create_augmentation_report(report_dir, timestamp)
+
+    def create_augmentation_report(self, report_dir, timestamp):
+        """Augmentation 결과 HTML 보고서 생성"""
+        from src.embedding import DatasetVisualizer
         
         visualizer = DatasetVisualizer(
             csv_path=None,
-            img_dir=str(self.img_dir),
+            img_dir=str(report_dir / "images"),  # 저장된 이미지 경로
             output_dir=report_dir,
-            timestamp=timestamp  # 기존 타임스탬프 전달
+            timestamp=timestamp
         )
         
-        # 클래스별 이미지 경로 설정
+        # 클래스별 이미지 경로 설정 (저장된 augmented 이미지 사용)
         visualizer.class_images = {
-            cls: [self.img_dir / row['ID'] 
-                 for _, row in self.df[self.df['target'] == cls].iterrows()]
+            cls: sorted(list((report_dir / "images").glob(f"class_{cls}_*.jpg")))
             for cls in self.class_counts.keys()
         }
         
-        # 보고서 생성 (augmentation 예시 포함)
+        # 보고서 생성
         visualizer.create_class_report(
-            n_samples=5,  # 각 클래스당 5개 샘플
+            n_samples=5,
             seed=42,
-            title=f"Augmentation Examples Report - {timestamp}",
-            transform=self.transform  # augmentation 함수 전달
+            title=f"Augmentation Examples Report - {timestamp}"
         )
 
 def data_prep(data_path: Path, cfg: DictConfig):
@@ -274,7 +296,7 @@ def get_dataloaders(data_path: Path, cfg: DictConfig):
     """데이터로더 생성"""
     train_transform = get_transforms(cfg.train.img_size, augment=cfg.data.augmentation)
     # validation/test는 augmentation 없이 base transform만
-    base_transform, _ = get_transforms(cfg.train.img_size, augment="none")
+    base_transform = get_transforms(cfg.train.img_size, augment="none")
     
     # 데이터프레임 로드
     train_df = pd.read_csv(data_path / "train_fold.csv")
@@ -357,7 +379,7 @@ def download_and_extract_data(url: str, target_dir: Path):
         temp_dir = target_dir / "temp"
         temp_dir.mkdir(exist_ok=True)
         
-        # 다운로드 및 압축 해제 (절대 경로 사용)
+        # 다운로드 및 압축 해제 (대 경로 사용)
         subprocess.run(['wget', '-q', '--show-progress', url], 
                       cwd=str(temp_dir.absolute()), check=True)
         subprocess.run(['tar', '-xf', 'data.tar.gz'], 
@@ -379,7 +401,7 @@ def download_and_extract_data(url: str, target_dir: Path):
         
         # 임시 파일 정리
         shutil.rmtree(temp_dir)
-        print("데이터 준비 완료!")
+        print("��이터 준비 완료!")
         
     except Exception as e:
         print(f"데이터 다운로드 오류 발생: {str(e)}")

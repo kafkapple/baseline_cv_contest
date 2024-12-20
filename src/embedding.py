@@ -91,7 +91,7 @@ class EmbeddingClusteringPipeline:
             img_name = os.path.basename(path)
             embedding_path = os.path.join(self.embeddings_dir, f"{os.path.splitext(img_name)[0]}.npy")
             
-            # 이미 계산된 임베딩이 있는지 인
+            # 이미 계산된 임베딩 있는지 인
             if os.path.exists(embedding_path):
                 embedding = np.load(embedding_path)
             else:
@@ -325,44 +325,57 @@ def save_embeddings(model, data_loader, device, cfg):
 # -------------------------
 
 class DatasetVisualizer:
-    def __init__(self, csv_path: str, img_dir: str, output_dir: str = "results/dataset_viz"):
+    def __init__(self, csv_path: str = None, img_dir: str = None, output_dir: str = "results/dataset_viz"):
         """
         Args:
-            csv_path: target 정보가 포함된 CSV 파일 경로
+            csv_path: target 정보가 포함된 CSV 파일 경로 (None 가능)
             img_dir: 이미지 디렉토리 경로
             output_dir: 결과물 저장 디렉토리
         """
-        self.df = pd.read_csv(csv_path)
-        self.img_dir = Path(img_dir)
-        self.base_output_dir = Path(output_dir)
+        # 프로젝트 루트 경로 설정
+        self.project_root = Path(__file__).parent.parent
+        
+        # 경로 설정 (프로젝트 루트 기준)
+        self.img_dir = self.project_root / img_dir if img_dir else None
+        self.base_output_dir = self.project_root / output_dir
         
         # timestamp 기반 run id 생성 및 폴더 생성
         self.run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.output_dir = self.base_output_dir / self.run_id
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # 클래스별 이미지 경로 정리 (클래스 ID 순서대로)
-        self.class_images = {}
-        for class_id in sorted(self.df['target'].unique()):  # 정렬된 클래스 ID
-            class_df = self.df[self.df['target'] == class_id]
-            self.class_images[class_id] = [
-                self.img_dir / img_id for img_id in class_df['ID']
-            ]
+        # CSV 파일이 제공된 경우에만 DataFrame 생성
+        if csv_path is not None:
+            csv_path = self.project_root / csv_path
+            self.df = pd.read_csv(csv_path)
+            # 클래스별 이미지 경로 정리
+            self.class_images = {}
+            for class_id in sorted(self.df['target'].unique()):
+                class_df = self.df[self.df['target'] == class_id]
+                self.class_images[class_id] = [
+                    self.img_dir / img_id for img_id in class_df['ID']
+                ]
+        else:
+            self.df = None
+            self.class_images = {}  # 외부에서 설정 가능
     
-    def create_class_report(self, n_samples: int = 10, seed: int = None):
+    def create_class_report(self, n_samples: int = 10, seed: int = None, title: str = None):
         """각 클래스별 랜덤 샘플링된 이미지로 HTML 리포트 생성"""
         if seed is not None:
             np.random.seed(seed)
             random.seed(seed)
         
-        # 이미지 저장 디렉토리 (run id 하위에 생성)
+        # 이미지 저장 디���토리
         images_dir = self.output_dir / "images"
         images_dir.mkdir(exist_ok=True)
+        
+        # 보고서 제목 설정
+        report_title = title if title else f"Dataset Class Report - {self.run_id}"
         
         html_content = f"""
         <html>
         <head>
-            <title>Dataset Class Report - {self.run_id}</title>
+            <title>{report_title}</title>
             <style>
                 .class-container {{ margin-bottom: 30px; }}
                 .image-container {{ display: inline-block; margin: 10px; text-align: center; }}
@@ -372,26 +385,32 @@ class DatasetVisualizer:
             </style>
         </head>
         <body>
-        <h1>Dataset Class Report</h1>
-        <div class="run-info">
-            Run ID: {self.run_id}<br>
-            Total Images: {len(self.df)}<br>
-            Number of Classes: {len(self.class_images)}
-        </div>
+        <h1>{report_title}</h1>
         """
         
-        # 전체 클래스 분포 정보 추가 (정렬된 순서로)
-        class_dist = self.df['target'].value_counts().sort_index()  # 클래스 ID 순서대로 정렬
+        # 클래스별 이미지 수 계산
+        if self.df is not None:
+            # train.csv가 있는 경우
+            class_counts = self.df['target'].value_counts().to_dict()
+            total_images = len(self.df)
+        else:
+            # augmented 이미지의 경우 (파일 경로에서 클래스 추출)
+            class_counts = {}
+            for cls, paths in self.class_images.items():
+                class_counts[cls] = len(paths)
+            total_images = sum(class_counts.values())
+        
+        # 클래스 분포 정보 추가
         html_content += "<h2>Class Distribution</h2>"
         html_content += "<table border='1'><tr><th>Class</th><th>Count</th><th>Ratio(%)</th></tr>"
-        for cls in sorted(class_dist.index):  # 정렬된 순서로 출력
-            count = class_dist[cls]
-            ratio = count / len(self.df) * 100
+        for cls in sorted(class_counts.keys()):
+            count = class_counts[cls]
+            ratio = count / total_images * 100
             html_content += f"<tr><td>{cls}</td><td>{count}</td><td>{ratio:.1f}%</td></tr>"
         html_content += "</table><br>"
         
-        # 각 클래스별 샘플 이미지 (정렬된 순서로)
-        for class_id in sorted(self.class_images.keys()):  # 클래스 ID 순서대로
+        # 각 클래스별 샘플 이미지
+        for class_id in sorted(self.class_images.keys()):
             img_paths = self.class_images[class_id]
             html_content += f'<div class="class-container">'
             html_content += f'<h2>Class {class_id}</h2>'
@@ -399,7 +418,7 @@ class DatasetVisualizer:
             # 클래스 정보
             html_content += f'<div class="class-info">'
             html_content += f'Total images: {len(img_paths)}<br>'
-            html_content += f'Ratio: {len(img_paths)/len(self.df)*100:.1f}%'
+            html_content += f'Ratio: {len(img_paths)/total_images*100:.1f}%'
             html_content += '</div>'
             
             # 랜덤 샘플링

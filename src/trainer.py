@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, precision_score, recall_score
 import numpy as np
 from typing import Dict, Any, Optional
 import torch.nn.functional as F
@@ -110,6 +110,7 @@ class Trainer:
         return epoch_metrics
 
     def validate(self, val_loader):
+        """Validation 수행"""
         self.model.eval()
         total_loss = 0
         all_preds = []
@@ -128,16 +129,22 @@ class Trainer:
                 
                 total_loss += loss.item()
         
+        # 1. 기본 메트릭 계산
         val_metrics = {
             'loss': total_loss / len(val_loader),
             'accuracy': accuracy_score(all_labels, all_preds),
             'f1': f1_score(all_labels, all_preds, average='macro')
         }
         
-        # 클래스별 F1 추가
+        # 2. 클래스별 성능 분석
         class_f1 = f1_score(all_labels, all_preds, average=None)
         for i, f1 in enumerate(class_f1):
             val_metrics[f'f1_class_{i}'] = f1
+        
+        # 3. 클래스별 confusion matrix (옵션)
+        if hasattr(self.cfg.logger, 'save_confusion_matrix') and self.cfg.logger.save_confusion_matrix:
+            cm = confusion_matrix(all_labels, all_preds)
+            val_metrics['confusion_matrix'] = cm
         
         return val_metrics
 
@@ -283,3 +290,22 @@ class Trainer:
 
             print()
         
+
+    def _calculate_class_metrics(self, preds, labels):
+        """클래스별 세부 메트릭 계산"""
+        metrics = {}
+        
+        # 클래스별 F1 score
+        class_f1 = f1_score(labels, preds, average=None)
+        for i, f1 in enumerate(class_f1):
+            metrics[f'f1_class_{i}'] = f1
+        
+        # 클래스별 precision/recall
+        class_precision = precision_score(labels, preds, average=None)
+        class_recall = recall_score(labels, preds, average=None)
+        
+        for i, (prec, rec) in enumerate(zip(class_precision, class_recall)):
+            metrics[f'precision_class_{i}'] = prec
+            metrics[f'recall_class_{i}'] = rec
+        
+        return metrics

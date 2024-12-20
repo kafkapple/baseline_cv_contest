@@ -128,6 +128,13 @@ class BalancedImageDataset(Dataset):
         self.img_dir = img_dir
         self.transform = transform
         
+        # 프로젝트 루트 경로 설정
+        self.project_root = Path(__file__).parent.parent
+        
+        # Augmented 이미지 저장 디렉토리 설정 (프로젝트 루트 기준)
+        self.output_dir = self.project_root / "data/processed/augmented"
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
         # 클래스별 샘플 수 계산
         self.class_counts = df['target'].value_counts().to_dict()
         self.max_samples = max(self.class_counts.values())
@@ -140,8 +147,14 @@ class BalancedImageDataset(Dataset):
                 strategy=cfg.data.get('aug_strategy', 'median'),
                 target_count=cfg.data.get('target_count', None)
             )
+            
+            # Augmented 샘플 생성 및 저장
+            self.save_augmented_samples(n_samples=5)  # 각 클래스당 5개 샘플 저장
+            
+            # HTML 보고서 생성
+            self.create_augmentation_report()
         else:
-            self.augment_factors = {cls: 1 for cls in self.class_counts}  # 기본 augmentation만
+            self.augment_factors = {cls: 1 for cls in self.class_counts}
         
         # 인덱스 매핑 생성
         self.indices = []
@@ -174,58 +187,83 @@ class BalancedImageDataset(Dataset):
         
         return image, row['target']
 
+    def save_augmented_samples(self, n_samples: int = 5):
+        """각 클래스별로 augmented 샘플 저장"""
+        for cls in self.class_counts.keys():
+            # 클래스별 이미지 필터링
+            cls_df = self.df[self.df['target'] == cls]
+            
+            # 저장 디렉토리 생성
+            cls_dir = self.output_dir / f"class_{cls}"
+            cls_dir.mkdir(exist_ok=True)
+            
+            # 랜덤 샘플 선택
+            selected_rows = cls_df.sample(
+                n=min(n_samples, len(cls_df)), 
+                random_state=42
+            )
+            
+            # 각 샘플에 대해 augmentation 적용 및 저장
+            for idx, row in selected_rows.iterrows():
+                img_path = self.img_dir / row['ID']
+                image = Image.open(img_path).convert('RGB')
+                image = np.array(image)
+                
+                # 원본 이미지 저장
+                Image.fromarray(image).save(
+                    cls_dir / f"original_{row['ID']}"
+                )
+                
+                # Augmented 이미지 저장
+                for aug_idx in range(self.augment_factors[cls]):
+                    if self.transform:
+                        aug_image = self.transform(image=image)['image']
+                        aug_image = aug_image.permute(1, 2, 0).numpy()
+                        aug_image = (aug_image * 255).astype(np.uint8)
+                        
+                        Image.fromarray(aug_image).save(
+                            cls_dir / f"aug_{aug_idx}_{row['ID']}"
+                        )
+
+    def create_augmentation_report(self):
+        """Augmentation 결과 HTML 보고서 생성"""
+        from src.embedding import DatasetVisualizer
+        
+        # HTML 보고서 생성
+        visualizer = DatasetVisualizer(
+            csv_path=None,  # 직접 데이터 전달
+            img_dir="data/processed/augmented",  # 프로젝트 루트 기준 경로
+            output_dir="data/processed/augmented/report"
+        )
+        
+        # 클래스별 이미지 경로 설정
+        visualizer.class_images = {
+            cls: list((self.output_dir / f"class_{cls}").glob("*.jpg"))
+            for cls in self.class_counts.keys()
+        }
+        
+        # 보고서 생성
+        visualizer.create_class_report(
+            n_samples=10,
+            seed=42,  # 재현성을 위한 시드 설정
+            title="Augmented Samples Report"  # 보고서 제목
+        )
+
 def data_prep(data_path: Path, cfg: DictConfig):
     """데이터 준비 및 분할"""
+    # 1. 데이터 다운로드 체크
     if not data_path.exists():
         download_and_extract_data(cfg.data.url, data_path)
     
-    # CSV 파일 로드
+    # 2. CSV 파일 로드
     df = pd.read_csv(data_path / "train.csv")
     
-    # 클래스 분포 출력
+    # 3. 원본 클래스 분포 출력
     class_counts = df['target'].value_counts().sort_index().to_dict()
     print_class_distribution(class_counts, "Original Class Distribution")
     
-    if cfg.data.split_method == "none":
-        df.to_csv(data_path / "train_fold.csv", index=False)
-        return
-    
-    # 데이터 분할 및식에 따라 처리
-    if cfg.data.split_method == "stratified_kfold":
-        # Stratified K-Fold Cross Validation
-        skf = StratifiedKFold(
-            n_splits=cfg.data.n_splits,
-            shuffle=True,
-            random_state=cfg.seed
-        )
-        
-        # 현재 fold 인덱스에 해당하는 split 찾기
-        for fold_idx, (train_idx, val_idx) in enumerate(skf.split(df, df['target'])):
-            if fold_idx == cfg.data.fold_index:
-                train_df = df.iloc[train_idx]
-                val_df = df.iloc[val_idx]
-                break
-                
-        print(f"\nUsing fold {cfg.data.fold_index + 1}/{cfg.data.n_splits}")
-        
-    elif cfg.data.split_method == "kfold":
-        # Regular K-Fold Cross Validation
-        kf = KFold(
-            n_splits=cfg.data.n_splits,
-            shuffle=True,
-            random_state=cfg.seed
-        )
-        
-        # 현재 fold 인덱스에 해당하는 split 찾기
-        for fold_idx, (train_idx, val_idx) in enumerate(kf.split(df)):
-            if fold_idx == cfg.data.fold_index:
-                train_df = df.iloc[train_idx]
-                val_df = df.iloc[val_idx]
-                break
-                
-        print(f"\nUsing fold {cfg.data.fold_index + 1}/{cfg.data.n_splits}")
-        
-    elif cfg.data.split_method == "stratified":
+    # 4. 데이터 분할
+    if cfg.data.split_method == "stratified":
         # Stratified Split
         train_df, val_df = train_test_split(
             df, 
@@ -233,27 +271,20 @@ def data_prep(data_path: Path, cfg: DictConfig):
             stratify=df['target'],
             random_state=cfg.seed
         )
-    
-    elif cfg.data.split_method == "holdout":
-        # Regular Split
-        train_df, val_df = train_test_split(
-            df,
-            test_size=cfg.data.val_size,
-            random_state=cfg.seed
-        )
-    
+        
+        # 분할된 데이터 저장
+        train_df.to_csv(data_path / "train_fold.csv", index=False)
+        val_df.to_csv(data_path / "val_fold.csv", index=False)
+        
+        # 분할 후 클래스 분포 출력
+        print_class_distribution(train_df['target'].value_counts().sort_index().to_dict(), 
+                               "Train Set Distribution")
+        print_class_distribution(val_df['target'].value_counts().sort_index().to_dict(), 
+                               "Validation Set Distribution")
     else:
-        raise ValueError(f"Unknown split method: {cfg.data.split_method}")
-    
-    # 분할된 데이터 저장
-    train_df.to_csv(data_path / "train_fold.csv", index=False)
-    val_df.to_csv(data_path / "val_fold.csv", index=False)
-    
-    # 분할 후 클래스 분포 출력
-    print_class_distribution(train_df['target'].value_counts().sort_index().to_dict(), 
-                           "Train Set Distribution")
-    print_class_distribution(val_df['target'].value_counts().sort_index().to_dict(), 
-                           "Validation Set Distribution")
+        # 전체 데이터를 train으로 사용
+        df.to_csv(data_path / "train_fold.csv", index=False)
+        df.to_csv(data_path / "val_fold.csv", index=False)  # validation도 동일하게 저장
 
 def get_dataloaders(data_path: Path, cfg: DictConfig):
     """데이터로더 생성"""
@@ -338,7 +369,7 @@ def download_and_extract_data(url: str, target_dir: Path):
     target_dir.mkdir(parents=True, exist_ok=True)
     
     try:
-        print(f"데이터 다운로드 중... (저장 위치: {target_dir})")
+        print(f"데이터 다운로드 중... (저장 디렉토리: {target_dir})")
         temp_dir = target_dir / "temp"
         temp_dir.mkdir(exist_ok=True)
         

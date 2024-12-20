@@ -7,8 +7,8 @@ output_dir: "outputs"
 
 data:
   augmentation: "advanced"  # none, basic, advanced
-  split_method: "stratified"  # none, holdout, stratified, kfold, stratified_kfold
-  val_size: 0.2
+  split_method: "stratified"  # kfold, stratified_kfold
+  val_size: 0.2  # stratified split에서 사용할 validation set 비율
   n_splits: 5
   fold_index: 0
   path: "data/raw"
@@ -20,6 +20,13 @@ data:
   # augmentation: 중간값 기준으로 소수 클래스 증강
   # weighted_sampler: 클래스별 가중치를 적용한 샘플링
   balance_classes: true
+  val_selection:
+    enabled: true  # validation set 추가 전략 사용 여부
+    strategy: "test_similar"  # none, random, balanced, test_similar
+    similarity_metrics:  # test_similar 전략 사용시
+      - "image_stats"  # 이미지 통계 기반
+      - "feature_dist"  # 특징 분포 기반
+      - "domain_score"  # 도메인 유사도
   
 model:
  # 모델 아키텍처 선택

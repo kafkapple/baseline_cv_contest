@@ -1,0 +1,49 @@
+# defaults:
+#   - _self_
+seed: 42
+output_dir: "output"
+
+data:
+  augmentation: "advanced"
+  split_method: "stratified_kfold"  # options: holdout, stratified_holdout, kfold, stratified_kfold
+  n_splits: 5  # for kfold
+  val_size: 0.2  # validation 사용
+  fold_index: 0  # which fold to use as validation in kfold
+  path: "data/raw"
+  url: "https://aistages-api-public-prod.s3.amazonaws.com/app/Competitions/000341/data/data.tar.gz"
+
+model:
+  name: "efficientnet_b0" # resnet34, efficientnet_b0
+  num_classes: 17
+  pretrained: true
+  class_balancing:
+    method: "class_weight"
+  domain_adaptation:
+    method: "adabn"
+
+train:
+  epochs: 60
+  lr: 1e-3
+  batch_size: 32
+  img_size: 32
+  num_workers: 0
+  early_stopping:
+    enabled: true
+    patience: 5
+    min_delta: 0.001
+  mixed_precision:
+    enabled: true
+    dtype: float16
+
+logger:
+  use_wandb: true
+  entity: "ailab_upstage_fastcampus"
+  project_name: "test_val"
+  run_name: "test_run"
+
+experiments:
+  model_name: ["resnet34", "efficientnet_b0"]
+  augmentations: ["basic", "advanced"]
+  split_method: ["holdout", "kfold", "stratified_kfold"]
+  domain_adaptation: [false, true]
+  ensemble: [false, true]

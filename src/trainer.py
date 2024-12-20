@@ -29,6 +29,13 @@ class Trainer:
             self.best_val_loss = float('inf')
             self.patience_counter = 0
 
+        if cfg.model.regularization.label_smoothing > 0:
+            self.criterion = nn.CrossEntropyLoss(
+                label_smoothing=cfg.model.regularization.label_smoothing
+            )
+        else:
+            self.criterion = criterion
+
     def train_epoch(self, train_loader, epoch):
         self.model.train()
         total_loss = 0
@@ -121,23 +128,15 @@ class Trainer:
         return val_metrics
 
     def train(self, train_loader, val_loader, epochs):
-        # 학습 시작 시 전체 epochs 수 로깅
-        self.logger.log_metrics(
-            {"total_epochs": epochs},
-            phase="train"
-        )
-        
         for epoch in range(epochs):
             # 학습
             train_metrics = self.train_epoch(train_loader, epoch)
-            train_metrics['epoch'] = epoch + 1
-            self.logger.log_metrics(train_metrics, step=epoch, phase='train')
+            self.logger.log_metrics(train_metrics, step=epoch, phase="train")
             
             # 검증
             if val_loader is not None:
                 val_metrics = self.validate(val_loader)
-                val_metrics['epoch'] = epoch + 1
-                self.logger.log_metrics(val_metrics, step=epoch, phase='val')
+                self.logger.log_metrics(val_metrics, step=epoch, phase="val")
                 
                 # Early Stopping 체크
                 if self.early_stopping:
@@ -154,10 +153,6 @@ class Trainer:
                     else:
                         self.patience_counter += 1
                         if self.patience_counter >= self.patience:
-                            self.logger.log_metrics(
-                                {"early_stopping": "Triggered"},
-                                phase="train"
-                            )
                             break
             
             # 모델 체크포인트 저장 (validation이 없는 경우)
@@ -201,7 +196,7 @@ class Trainer:
 
     def adapt_test_time(self, loader):
         """Test-Time Adaptation using rotation prediction"""
-        self.model.train()  # BN 통계 업데이트를 위해
+        self.model.train()  # BN 통계 업데이트 ��해
         optimizer = torch.optim.Adam(self.model.parameters(), lr=0.0001)
         
         with tqdm(loader, desc="Test-Time Adaptation") as pbar:

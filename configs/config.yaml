@@ -1,31 +1,53 @@
 # defaults:
 #   - _self_
+
 seed: 42
-output_dir: "output"
+
+output_dir: "outputs"
 
 data:
-  augmentation: "advanced"
-  split_method: "stratified_kfold"  # options: holdout, stratified_holdout, kfold, stratified_kfold
-  n_splits: 5  # for kfold
-  val_size: 0.2  # validation 사용
-  fold_index: 0  # which fold to use as validation in kfold
+  augmentation: "advanced"  # none, basic, advanced
+  split_method: "stratified"  # none, holdout, stratified, kfold, stratified_kfold
+  val_size: 0.2
+  n_splits: 5
+  fold_index: 0
   path: "data/raw"
   url: "https://aistages-api-public-prod.s3.amazonaws.com/app/Competitions/000341/data/data.tar.gz"
-
+  balance_strategy: "augmentation"  # none, augmentation, weighted_sampler
+  aug_strategy: "target"  # median, max, target
+  target_count: 1000 #null  # aug_strategy가 target일 때 사용할 목표 샘플 수
+  # none: 클래스 불균형 처리 없음
+  # augmentation: 중간값 기준으로 소수 클래스 증강
+  # weighted_sampler: 클래스별 가중치를 적용한 샘플링
+  balance_classes: true
+  
 model:
-  name: "efficientnet_b0" # resnet34, efficientnet_b0
+  name: "resnet34"  # resnet18, resnet34, resnet50, efficientnet_b0, ...
   num_classes: 17
-  pretrained: true
-  class_balancing:
-    method: "class_weight"
+  pretrained: true  # true: pretrained weights 사용, false: random init
+  init_method: "xavier_uniform"  # none, xavier_uniform, xavier_normal, kaiming_uniform, kaiming_normal
+  init_params:
+    gain: 1.0  # xavier init에 사용
+    mode: "fan_in"  # kaiming init에 사용 (fan_in, fan_out)
+    nonlinearity: "relu"  # kaiming init에 사용
+  regularization:
+    dropout: 0.0  # dropout 비율
+    weight_decay: 0.0  # L2 regularization
+    label_smoothing: 0.2  # 0.0-1.0
   domain_adaptation:
-    method: "adabn"
+    method: "none"  # none, tta, adabn, dann
+    # none: 도메인 적응 없음
+    # tta: Test-Time Augmentation
+    # adabn: Adaptive Batch Normalization
+    # dann: Domain Adversarial Neural Network
+    tta_steps: 100  # tta 적용 시 반복 횟수
+    tta_lr: 0.0001  # tta 적용 시 learning rate
 
 train:
-  epochs: 60
-  lr: 1e-3
+  epochs: 1
   batch_size: 32
-  img_size: 32
+  img_size: 512
+  lr: 1e-3
   num_workers: 0
   early_stopping:
     enabled: true
@@ -33,17 +55,13 @@ train:
     min_delta: 0.001
   mixed_precision:
     enabled: true
-    dtype: float16
 
 logger:
   use_wandb: true
+  save_interval: none   # 모델 저장 주기
   entity: "ailab_upstage_fastcampus"
-  project_name: "test_val"
-  run_name: "test_run"
-
-experiments:
-  model_name: ["resnet34", "efficientnet_b0"]
-  augmentations: ["basic", "advanced"]
-  split_method: ["holdout", "kfold", "stratified_kfold"]
-  domain_adaptation: [false, true]
-  ensemble: [false, true]
+  project_name: "ailab_contest_cv_team_1"
+  metrics:
+    epoch: ["loss", "accuracy", "f1"]   # 에폭 단위 메트릭
+    global: ["epoch", "learning_rate"]
+    class_metrics: ["f1"]

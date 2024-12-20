@@ -30,10 +30,6 @@ class Logger:
                 f"model_{cfg.model.name}",
                 f"img_size_{cfg.train.img_size}",
                 f"split_{cfg.data.split_method}",
-                f"aug_{cfg.data.augmentation}",
-                f"batch_{cfg.train.batch_size}",
-                f"lr_{cfg.train.lr}",
-                f"da_{cfg.model.domain_adaptation.method}"
             ]
             
             # wandb config에 전체 epochs 수 포함
@@ -112,7 +108,6 @@ class Logger:
                 if k.startswith('f1_class_'):
                     wandb_metrics[f"{phase}/{k}"] = v
             
-            # 로깅
             wandb.log(wandb_metrics, step=step)
         
         # 콘솔 출력 - 주요 메트릭만 출력

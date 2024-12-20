@@ -5,8 +5,11 @@ import torch.nn as nn
 import torch.nn.init as init
 from omegaconf import DictConfig, OmegaConf
 
-def initialize_weights(model: nn.Module, method: str = "kaiming", **kwargs):
+def initialize_weights(model: nn.Module, method: str = "kaiming", seed: int = None, **kwargs):
     """가중치 초기화"""
+    if seed is not None:
+        torch.manual_seed(seed)
+    
     for m in model.modules():
         if isinstance(m, (nn.Conv2d, nn.Linear)):
             if method == "xavier_uniform":
@@ -77,6 +80,7 @@ class AdaptiveModel(nn.Module):
         if not cfg.model.pretrained and cfg.model.init_method != "none":
             initialize_weights(self, 
                             method=cfg.model.init_method,
+                            seed=cfg.seed,
                             **cfg.model.init_params)
     
     def forward(self, x, mode='main', alpha=None):

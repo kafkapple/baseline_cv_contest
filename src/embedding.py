@@ -14,6 +14,7 @@ from tqdm import tqdm
 import json
 import datetime
 import pandas as pd
+import random
 # -------------------------
 # 1. Embedding Model Class (변동 없음)
 # -------------------------
@@ -90,7 +91,7 @@ class EmbeddingClusteringPipeline:
             img_name = os.path.basename(path)
             embedding_path = os.path.join(self.embeddings_dir, f"{os.path.splitext(img_name)[0]}.npy")
             
-            # 이미 계산된 임베딩이 있는지 ��인
+            # 이미 계산된 임베딩이 있는지 인
             if os.path.exists(embedding_path):
                 embedding = np.load(embedding_path)
             else:
@@ -348,9 +349,11 @@ class DatasetVisualizer:
                 self.img_dir / img_id for img_id in class_df['ID']
             ]
     
-    def create_class_report(self, n_samples: int = 10, seed: int = 42):
+    def create_class_report(self, n_samples: int = 10, seed: int = None):
         """각 클래스별 랜덤 샘플링된 이미지로 HTML 리포트 생성"""
-        np.random.seed(seed)
+        if seed is not None:
+            np.random.seed(seed)
+            random.seed(seed)
         
         # 이미지 저장 디렉토리 (run id 하위에 생성)
         images_dir = self.output_dir / "images"

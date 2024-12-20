@@ -338,7 +338,7 @@ def download_and_extract_data(url: str, target_dir: Path):
     target_dir.mkdir(parents=True, exist_ok=True)
     
     try:
-        print(f"데이터 다운��드 중... (저장 위치: {target_dir})")
+        print(f"데이터 다운로드 중... (저장 위치: {target_dir})")
         temp_dir = target_dir / "temp"
         temp_dir.mkdir(exist_ok=True)
         

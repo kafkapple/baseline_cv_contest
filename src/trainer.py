@@ -7,6 +7,7 @@ import numpy as np
 from typing import Dict, Any, Optional
 import torch.nn.functional as F
 import os
+import random
 
 class Trainer:
     def __init__(self, model, device, optimizer, criterion, logger, cfg):
@@ -38,6 +39,18 @@ class Trainer:
             self.criterion = criterion
 
     def train_epoch(self, train_loader, epoch):
+        # DataLoader worker의 seed 설정
+        def seed_worker(worker_id):
+            worker_seed = self.cfg.seed + worker_id
+            np.random.seed(worker_seed)
+            random.seed(worker_seed)
+        
+        g = torch.Generator()
+        g.manual_seed(self.cfg.seed)
+        
+        train_loader.worker_init_fn = seed_worker
+        train_loader.generator = g
+        
         self.model.train()
         total_loss = 0
         all_preds = []

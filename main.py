@@ -13,8 +13,26 @@ from src.logger import get_logger
 import torch.nn as nn
 from pathlib import Path
 
+def set_seed(seed: int):
+    """모든 random seed를 고정"""
+    import random
+    import numpy as np
+    import torch
+    
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # multi-GPU
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    os.environ['PYTHONHASHSEED'] = str(seed)
+
 @hydra.main(version_base=None, config_path="./configs", config_name="config")
 def main(cfg: DictConfig):
+    # Global seed 설정
+    set_seed(cfg.seed)
+    
     # Logger 초기화 (실험 설정 출력 포함)
     logger = get_logger(cfg)
     

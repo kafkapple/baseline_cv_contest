@@ -41,7 +41,7 @@ model:
   #   - vit_large_patch16_224: 큰 버전
   #   - vit_tiny_patch16_224: 매우 작은 버전
   #   - 이미지 크기 224x224 고정
-  name: "efficientnet_b3"  # 콜론 제거
+  name: "efficientnet_b0"  # 콜론 제거
   num_classes: 17
   pretrained: true  # true: pretrained weights 사용, false: random init
   init_method: "xavier_uniform"  # none, xavier_uniform, xavier_normal, kaiming_uniform, kaiming_normal
@@ -64,8 +64,8 @@ model:
 
 train:
   epochs: 1
-  batch_size: 16
-  img_size: 300
+  batch_size: 32
+  img_size: 224
   lr: 1e-3
   num_workers: 0
   early_stopping:

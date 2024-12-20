@@ -13,9 +13,9 @@ data:
   fold_index: 0
   path: "data/raw"
   url: "https://aistages-api-public-prod.s3.amazonaws.com/app/Competitions/000341/data/data.tar.gz"
-  balance_strategy: "augmentation"  # none, augmentation, weighted_sampler
+  balance_strategy: "none"  # none, augmentation, weighted_sampler
   aug_strategy: "target"  # median, max, target
-  target_count: 1000 #null  # aug_strategy가 target일 때 사용할 목표 샘플 수
+  target_count: 100 #null  # aug_strategy가 target일 때 사용할 목표 샘플 수
   # none: 클래스 불균형 처리 없음
   # augmentation: 중간값 기준으로 소수 클래스 증강
   # weighted_sampler: 클래스별 가중치를 적용한 샘플링

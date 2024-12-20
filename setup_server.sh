@@ -1,5 +1,4 @@
 #!/bin/bash
-#!/bin/bash
 
 # 스크립트 실행 중 오류 발생 시 즉시 종료
 set -e
@@ -64,8 +63,6 @@ echo "Conda 설정을 위해 사용자 '$CURRENT_USER'로 전환합니다."
 
 # Conda 설정 스크립트 내용
 CONDA_SETUP=$(cat <<'EOF'
-#!/bin/bash
-
 # 오류 발생 시 즉시 종료
 set -e
 
@@ -120,16 +117,21 @@ echo "=============================="
 
 # Git 설정을 위한 사용자 권한 스크립트
 GIT_SETUP=$(cat <<EOF
-#!/bin/bash
-
 # 오류 발생 시 즉시 종료
 set -e
 
 # Git 글로벌 설정
 echo "Git 글로벌 설정을 시작합니다."
 
+# Git 사용자 이름 입력
+read -p "Git 사용자 이름을 입력하세요: " GIT_USERNAME
+
+# Git 사용자 이메일 입력
+read -p "Git 사용자 이메일을 입력하세요: " GIT_USEREMAIL
+
 # Personal Access Token (PAT) 입력
-read -p "GitHub Personal Access Token (PAT)을 입력하세요: " PAT
+read -s -p "GitHub Personal Access Token (PAT)을 입력하세요: " PAT
+echo # 새 줄 추가
 
 # Repository URL 입력
 read -p "클론할 리포지토리의 URL을 입력하세요 (예: https://github.com/username/repo.git): " REPO_URL
@@ -140,8 +142,8 @@ git clone https://\$PAT@\${REPO_URL#https://} || { echo "리포지토리 클론 
 
 # Git 글로벌 설정
 echo "Git 글로벌 설정을 적용 중..."
-git config --global user.name "kafkapple"
-git config --global user.email "biasdrive@gmail.com"
+git config --global user.name "${GIT_USERNAME}"
+git config --global user.email "${GIT_USEREMAIL}"
 git config --global core.editor "$GIT_EDITOR"
 git config --global core.pager cat
 git config --global alias.lg "log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit"

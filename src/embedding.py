@@ -455,11 +455,11 @@ class DatasetVisualizer:
                         html_content += f"""
                         <div class="image-container">
                             <div>
-                                <img src="images/{img_filename}.orig.jpg">
+                                <img src="./images/{img_filename}.orig.jpg">
                                 <p>Original</p>
                             </div>
                             <div>
-                                <img src="images/{img_filename}.aug.jpg">
+                                <img src="./images/{img_filename}.aug.jpg">
                                 <p>Augmented</p>
                             </div>
                         </div>
@@ -467,7 +467,7 @@ class DatasetVisualizer:
                     else:
                         html_content += f"""
                         <div class="image-container">
-                            <img src="images/{img_filename}.orig.jpg">
+                            <img src="./images/{img_filename}.orig.jpg">
                             <p>File: {img_path.name}</p>
                         </div>
                         """

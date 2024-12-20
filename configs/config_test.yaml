@@ -86,7 +86,7 @@ logger:
   use_wandb: true
   save_interval: none
   entity: "ailab_upstage_fastcampus"
-  project_name: "ailab_contest_cv_team_1"
+  project_name: "test"
   reinit: true
   metrics:
     epoch: ["loss", "accuracy", "f1"]

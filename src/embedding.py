@@ -13,6 +13,7 @@ from pathlib import Path
 from tqdm import tqdm
 import json
 import datetime
+import pandas as pd
 # -------------------------
 # 1. Embedding Model Class (변동 없음)
 # -------------------------
@@ -89,7 +90,7 @@ class EmbeddingClusteringPipeline:
             img_name = os.path.basename(path)
             embedding_path = os.path.join(self.embeddings_dir, f"{os.path.splitext(img_name)[0]}.npy")
             
-            # 이미 계산된 임베딩이 있는지 확인
+            # 이미 계산된 임베딩이 있는지 ��인
             if os.path.exists(embedding_path):
                 embedding = np.load(embedding_path)
             else:
@@ -286,33 +287,6 @@ class EmbeddingClusteringPipeline:
         with open(os.path.join(self.output_dir, "cluster_report.html"), "w") as f:
             f.write(html_content)
 
-# -------------------------
-# 4. Run the Pipeline
-# -------------------------
-if __name__ == "__main__":
-    # Example image paths
-    test_path = Path(__file__).parent / "data/test/"
-    #test_path = "/home/joon/dataset/cv/test/images"
-    print(f"\n===test_path: {test_path}")
-    image_paths = glob.glob(f"{test_path}/*.jpg")
-    print(f"image len: {len(image_paths)}")
-    # Initialize Embedding Model (ResNet50)
-    embedding_model = EmbeddingModel(model_name="mobilenet_v2")
-    
-    # Initialize Clustering Method (KMeans)
-    clustering_method = ClusteringMethod(method_name="kmeans", n_clusters=17, random_state=42)
-    
-    # Run the Pipeline
-    pipeline = EmbeddingClusteringPipeline(
-        image_paths=image_paths,
-        embedding_model=embedding_model,
-        clustering_method=clustering_method,
-        n_images=10,
-        output_dir="outputs/embedding"
-    )
-    
-    pipeline.process_and_visualize()
-
 def save_embeddings(model, data_loader, device, cfg):
     """모델의 중간 레이어 임베딩을 추출하고 저장"""
     output_dir = Path(cfg.output_dir)
@@ -344,3 +318,150 @@ def save_embeddings(model, data_loader, device, cfg):
     
     print(f"Embeddings saved to {save_path}")
     return save_path
+
+# -------------------------
+# 4. Run the Pipeline
+# -------------------------
+
+class DatasetVisualizer:
+    def __init__(self, csv_path: str, img_dir: str, output_dir: str = "results/dataset_viz"):
+        """
+        Args:
+            csv_path: target 정보가 포함된 CSV 파일 경로
+            img_dir: 이미지 디렉토리 경로
+            output_dir: 결과물 저장 디렉토리
+        """
+        self.df = pd.read_csv(csv_path)
+        self.img_dir = Path(img_dir)
+        self.base_output_dir = Path(output_dir)
+        
+        # timestamp 기반 run id 생성 및 폴더 생성
+        self.run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.output_dir = self.base_output_dir / self.run_id
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 클래스별 이미지 경로 정리 (클래스 ID 순서대로)
+        self.class_images = {}
+        for class_id in sorted(self.df['target'].unique()):  # 정렬된 클래스 ID
+            class_df = self.df[self.df['target'] == class_id]
+            self.class_images[class_id] = [
+                self.img_dir / img_id for img_id in class_df['ID']
+            ]
+    
+    def create_class_report(self, n_samples: int = 10, seed: int = 42):
+        """각 클래스별 랜덤 샘플링된 이미지로 HTML 리포트 생성"""
+        np.random.seed(seed)
+        
+        # 이미지 저장 디렉토리 (run id 하위에 생성)
+        images_dir = self.output_dir / "images"
+        images_dir.mkdir(exist_ok=True)
+        
+        html_content = f"""
+        <html>
+        <head>
+            <title>Dataset Class Report - {self.run_id}</title>
+            <style>
+                .class-container {{ margin-bottom: 30px; }}
+                .image-container {{ display: inline-block; margin: 10px; text-align: center; }}
+                img {{ max-width: 200px; margin-bottom: 5px; }}
+                .class-info {{ margin-bottom: 10px; }}
+                .run-info {{ margin-bottom: 20px; color: #666; }}
+            </style>
+        </head>
+        <body>
+        <h1>Dataset Class Report</h1>
+        <div class="run-info">
+            Run ID: {self.run_id}<br>
+            Total Images: {len(self.df)}<br>
+            Number of Classes: {len(self.class_images)}
+        </div>
+        """
+        
+        # 전체 클래스 분포 정보 추가 (정렬된 순서로)
+        class_dist = self.df['target'].value_counts().sort_index()  # 클래스 ID 순서대로 정렬
+        html_content += "<h2>Class Distribution</h2>"
+        html_content += "<table border='1'><tr><th>Class</th><th>Count</th><th>Ratio(%)</th></tr>"
+        for cls in sorted(class_dist.index):  # 정렬된 순서로 출력
+            count = class_dist[cls]
+            ratio = count / len(self.df) * 100
+            html_content += f"<tr><td>{cls}</td><td>{count}</td><td>{ratio:.1f}%</td></tr>"
+        html_content += "</table><br>"
+        
+        # 각 클래스별 샘플 이미지 (정렬된 순서로)
+        for class_id in sorted(self.class_images.keys()):  # 클래스 ID 순서대로
+            img_paths = self.class_images[class_id]
+            html_content += f'<div class="class-container">'
+            html_content += f'<h2>Class {class_id}</h2>'
+            
+            # 클래스 정보
+            html_content += f'<div class="class-info">'
+            html_content += f'Total images: {len(img_paths)}<br>'
+            html_content += f'Ratio: {len(img_paths)/len(self.df)*100:.1f}%'
+            html_content += '</div>'
+            
+            # 랜덤 샘플링
+            selected_paths = np.random.choice(img_paths, 
+                                           min(n_samples, len(img_paths)), 
+                                           replace=False)
+            
+            # 이미지 추가
+            for i, img_path in enumerate(selected_paths):
+                img_filename = f"class_{class_id}_sample_{i}_{img_path.name}"
+                img_dest_path = images_dir / img_filename
+                
+                try:
+                    import shutil
+                    shutil.copy2(img_path, img_dest_path)
+                    
+                    html_content += f"""
+                    <div class="image-container">
+                        <img src="./images/{img_filename}">
+                        <p>File: {img_path.name}</p>
+                    </div>
+                    """
+                except Exception as e:
+                    print(f"Error copying image {img_path}: {str(e)}")
+            
+            html_content += "</div>"
+        
+        html_content += "</body></html>"
+        
+        # HTML 파일 저장
+        with open(self.output_dir / "class_report.html", "w") as f:
+            f.write(html_content)
+        
+        print(f"Report saved to {self.output_dir}/class_report.html")
+        print(f"Run ID: {self.run_id}")
+
+# 사용 예시
+if __name__ == "__main__":
+    # Example image paths
+    test_path = Path(__file__).parent / "data/raw/train/"
+    #test_path = "/home/joon/dataset/cv/test/images"
+    print(f"\n===test_path: {test_path}")
+    image_paths = glob.glob(f"{test_path}/*.jpg")
+    print(f"image len: {len(image_paths)}")
+    # Initialize Embedding Model (ResNet50)
+    # embedding_model = EmbeddingModel(model_name="mobilenet_v2")
+    
+    # # Initialize Clustering Method (KMeans)
+    # clustering_method = ClusteringMethod(method_name="kmeans", n_clusters=17, random_state=42)
+    
+    # # Run the Pipeline
+    # pipeline = EmbeddingClusteringPipeline(
+    #     image_paths=image_paths,
+    #     embedding_model=embedding_model,
+    #     clustering_method=clustering_method,
+    #     n_images=10,
+    #     output_dir="outputs/embedding"
+    # )
+    
+    # pipeline.process_and_visualize()
+    
+    # 데이터셋 시각화
+    visualizer = DatasetVisualizer(
+        csv_path="data/raw/train.csv",
+        img_dir="data/raw/train",
+        output_dir="outputs/dataset_viz"
+    )
+    visualizer.create_class_report(n_samples=10)

@@ -1,0 +1,35 @@
+model:
+ 
+  name: "resnet34"
+  num_classes: 17
+  pretrained: true  # true: pretrained weights 사용, false: random init
+
+  # 가중치 초기화 설정 (pretrained=False일 때 사용)
+  init_method: "kaiming_uniform"  # none, xavier_uniform, xavier_normal, kaiming_uniform, kaiming_normal
+  init_params:
+    gain: 1.0  # xavier init에서 사용되는 gain 값
+    mode: "fan_in"  # kaiming init에서 사용 (fan_in, fan_out)
+    nonlinearity: "relu"  # kaiming init에서 사용되는 활성화 함수 (relu, leaky_relu 등)
+
+  # 모델 정규화 설정
+  regularization:
+    dropout: 0.0  # dropout 비율 (0.0-1.0)
+    weight_decay: 0.0  # L2 regularization 강도
+    label_smoothing: 0.0  # label smoothing 강도 (0.0-1.0)
+
+  # 도메인 적응 설정
+  domain_adaptation:
+    method: "none"  # none, tta, adabn, dann
+    # none: 도메인 적응 없음
+    # tta: Test-Time Augmentation (테스트 시 augmentation 적용)
+    # adabn: Adaptive Batch Normalization (테스트 데이터로 BN 통계 업데이트)
+    # dann: Domain Adversarial Neural Network (도메인 적응 학습)
+    tta_steps: 100  # tta 적용 시 반복 횟수
+    tta_lr: 0.0001  # tta 적용 시 learning rate
+
+train:
+  epochs: 100
+  batch_size: 32
+  img_size: 224  # 모델별 권장 이미지 크기 참고
+  lr: 1e-3
+  num_workers: 4

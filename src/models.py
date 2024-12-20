@@ -33,9 +33,25 @@ class AdaptiveModel(nn.Module):
         super().__init__()
         self.method = cfg.model.domain_adaptation.method
         
-        # Feature extractor (기존 모델의 마지막 FC layer 제외)
-        self.features = nn.Sequential(*list(base_model.children())[:-1])
-        feature_dim = base_model.fc.in_features
+        # Feature extractor 설정
+        if 'vit' in cfg.model.name:
+            # ViT의 경우
+            self.features = base_model
+            feature_dim = base_model.head.in_features
+            self.features.head = nn.Identity()  # head 제거
+        else:
+            # CNN 계열 모델의 경우
+            if hasattr(base_model, 'fc'):
+                feature_dim = base_model.fc.in_features
+                self.features = nn.Sequential(*list(base_model.children())[:-1])
+            elif hasattr(base_model, 'classifier'):
+                if isinstance(base_model.classifier, nn.Linear):
+                    feature_dim = base_model.classifier.in_features
+                else:
+                    feature_dim = base_model.classifier[-1].in_features
+                self.features = nn.Sequential(*list(base_model.children())[:-1])
+            else:
+                raise ValueError(f"Unknown model architecture: {type(base_model)}")
         
         # Dropout 추가
         self.dropout = nn.Dropout(p=cfg.model.regularization.dropout)
@@ -54,28 +70,30 @@ class AdaptiveModel(nn.Module):
                 nn.Linear(1024, 1024),
                 nn.ReLU(),
                 nn.Dropout(0.5),
-                nn.Linear(1024, 2)  # 2 domains (source/target)
+                nn.Linear(1024, 2)
             )
         
-        # Weight initialization (pretrained가 아닐 경우에만)
+        # Weight initialization
         if not cfg.model.pretrained and cfg.model.init_method != "none":
             initialize_weights(self, 
                             method=cfg.model.init_method,
                             **cfg.model.init_params)
     
     def forward(self, x, mode='main', alpha=None):
-        features = self.features(x)
-        features = torch.flatten(features, 1)
+        if 'vit' in self.method:
+            features = self.features(x)  # ViT는 이미 flatten된 feature 반환
+        else:
+            features = self.features(x)
+            features = torch.flatten(features, 1)
+        
         features = self.dropout(features)
         
         if mode == 'main':
             if self.method == "dann" and alpha is not None:
-                # DANN: return both class and domain predictions
                 class_output = self.classifier(features)
                 domain_output = self.domain_classifier(features)
                 return class_output, domain_output
             else:
-                # Normal forward pass
                 return self.classifier(features)
         elif mode == 'rotation':
             return self.rot_classifier(features)

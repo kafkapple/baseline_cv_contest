@@ -22,7 +22,26 @@ data:
   balance_classes: true
   
 model:
-  name: "resnet34"  # resnet18, resnet34, resnet50, efficientnet_b0, ...
+ # 모델 아키텍처 선택
+  # ResNet 계열:
+  #   - resnet18, resnet34, resnet50, resnet101
+  #   - 이미지 크기 유연함 (224, 256, 512 등)
+  # EfficientNet 계열:
+  #   - efficientnet_b0 (224x224)
+  #   - efficientnet_b1 (240x240)
+  #   - efficientnet_b2 (260x260)
+  #   - efficientnet_b3 (300x300)
+  #   - efficientnet_b4 (380x380)
+  #   - efficientnet_b5 (456x456)
+  #   - efficientnet_b6 (528x528)
+  #   - efficientnet_b7 (600x600)
+  # ViT 계열:
+  #   - vit_base_patch16_224: 기본 ViT 모델
+  #   - vit_small_patch16_224: 작은 버전
+  #   - vit_large_patch16_224: 큰 버전
+  #   - vit_tiny_patch16_224: 매우 작은 버전
+  #   - 이미지 크기 224x224 고정
+  name: "efficientnet_b1"  # 콜론 제거
   num_classes: 17
   pretrained: true  # true: pretrained weights 사용, false: random init
   init_method: "xavier_uniform"  # none, xavier_uniform, xavier_normal, kaiming_uniform, kaiming_normal
@@ -46,7 +65,7 @@ model:
 train:
   epochs: 1
   batch_size: 32
-  img_size: 512
+  img_size: 240
   lr: 1e-3
   num_workers: 0
   early_stopping:
@@ -62,6 +81,6 @@ logger:
   entity: "ailab_upstage_fastcampus"
   project_name: "ailab_contest_cv_team_1"
   metrics:
-    epoch: ["loss", "accuracy", "f1"]   # 에폭 단위 메트릭
+    epoch: ["loss", "accuracy", "f1"]   # 에폭 단�� 메트릭
     global: ["epoch", "learning_rate"]
     class_metrics: ["f1"]

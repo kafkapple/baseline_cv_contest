@@ -19,17 +19,16 @@ class Logger:
         # wandb 초기화
         self.use_wandb = cfg.logger.use_wandb
         if self.use_wandb:
-            # 주요 설정으로 run name 구성
-            run_name = f"{cfg.model.name}_{cfg.train.img_size}_{cfg.data.split_method}"
-            if cfg.model.domain_adaptation.method != "none":
-                run_name += f"_{cfg.model.domain_adaptation.method}"
-            run_name += f"_{self.experiment_id}"
+            # experiment_id를 run name으로 사용
+            run_name = self.experiment_id
             
             # 주요 설정으로 tags 구성
             tags = [
                 f"model_{cfg.model.name}",
                 f"img_size_{cfg.train.img_size}",
                 f"split_{cfg.data.split_method}",
+                f"aug_{cfg.data.augmentation}",
+                f"da_{cfg.model.domain_adaptation.method}"
             ]
             
             # wandb config에 전체 epochs 수 포함

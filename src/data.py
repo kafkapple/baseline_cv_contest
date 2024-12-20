@@ -12,6 +12,7 @@ from omegaconf import DictConfig
 import subprocess
 import shutil
 from torch.utils.data import WeightedRandomSampler
+import datetime
 
 class ImageDataset(Dataset):
     def __init__(self, df, img_dir, transform=None):
@@ -19,7 +20,7 @@ class ImageDataset(Dataset):
         Args:
             df: DataFrame or path to csv file
             img_dir: Image directory path
-            transform: Albumentations transforms
+            transform: Albumentations transforms (base_transform, aug_transform)
         """
         if isinstance(df, (str, Path)):
             self.df = pd.read_csv(df)
@@ -35,28 +36,35 @@ class ImageDataset(Dataset):
         row = self.df.iloc[idx]
         img_path = os.path.join(self.img_dir, row['ID'])
         img = np.array(Image.open(img_path).convert('RGB'))
+        
         if self.transform:
-            img = self.transform(image=img)['image']
+            base_transform, aug_transform = self.transform
+            # validation/test는 base_transform만 적용
+            img = base_transform(image=img)['image']
+        
         return img, row['target']
 
 def get_transforms(img_size: int, augment: str = "basic"):
-    """이미지 전처리 및 augmentation 함수"""
+    """이미지 전처리 및 augmentation 함수 분리"""
+    # 1. 기본 전처리 (모든 데이터셋 공통)
+    base_transform = A.Compose([
+        A.Resize(img_size, img_size),
+        A.Normalize(),
+        ToTensorV2(),
+    ])
+    
+    # 2. Augmentation (train only)
     if augment == "none":
-        return A.Compose([
-            A.Resize(img_size, img_size),
-            A.Normalize(),
-            ToTensorV2(),
-        ])
+        aug_transform = None
     elif augment == "basic":
-        return A.Compose([
-            A.Resize(img_size, img_size),
-            A.HorizontalFlip(p=0.5),
-            A.Normalize(),
-            ToTensorV2(),
+        aug_transform = A.Compose([
+            A.HorizontalFlip(p=0.2),
+            A.VerticalFlip(p=0.2),
+            A.GaussNoise(var_limit=(5.0, 20.0), p=0.2),
+            A.Rotate(limit=30, p=0.2)
         ])
     elif augment == "advanced":
-        return A.Compose([
-            A.Resize(img_size, img_size),
+        aug_transform = A.Compose([
             A.OneOf([
                 A.RandomRotate90(p=0.5),
                 A.Rotate(limit=30, p=0.5),
@@ -65,26 +73,35 @@ def get_transforms(img_size: int, augment: str = "basic"):
                 A.HorizontalFlip(p=0.5),
                 A.VerticalFlip(p=0.3),
             ], p=0.5),
+            # 노이즈 추가 (약하게)
             A.OneOf([
-                A.GaussNoise(p=0.5),
-                A.GaussianBlur(p=0.5),
-                A.ISONoise(p=0.5),
+                A.GaussNoise(var_limit=(5.0, 20.0), p=0.5),
+                A.GaussianBlur(blur_limit=3, p=0.5),
             ], p=0.3),
+            # 색상 변환 (매우 약하게)
             A.OneOf([
-                A.RandomBrightnessContrast(p=0.5),
-                A.HueSaturationValue(p=0.5),
-            ], p=0.3),
+                A.RandomBrightnessContrast(
+                    brightness_limit=0.05,  # ±5%
+                    contrast_limit=0.05,    # ±5%
+                    p=0.5
+                ),
+                A.HueSaturationValue(
+                    hue_shift_limit=5,     # ±5
+                    sat_shift_limit=10,    # ±10
+                    val_shift_limit=5,     # ±5
+                    p=0.5
+                ),
+            ], p=0.2),
+            # 이미지 이동/확대/축소
             A.ShiftScaleRotate(
                 shift_limit=0.1,
                 scale_limit=0.1,
                 rotate_limit=0,
                 p=0.3
             ),
-            A.Normalize(),
-            ToTensorV2(),
         ])
-    else:
-        raise ValueError(f"Unknown augmentation: {augment}")
+    
+    return base_transform, aug_transform
 
 def print_class_distribution(counts: dict, title: str = "Class Distribution"):
     """클래스 분포를 테이블로 출력"""
@@ -131,10 +148,6 @@ class BalancedImageDataset(Dataset):
         # 프로젝트 루트 경로 설정
         self.project_root = Path(__file__).parent.parent
         
-        # Augmented 이미지 저장 디렉토리 설정 (프로젝트 루트 기준)
-        self.output_dir = self.project_root / "data/processed/augmented"
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        
         # 클래스별 샘플 수 계산
         self.class_counts = df['target'].value_counts().to_dict()
         self.max_samples = max(self.class_counts.values())
@@ -148,10 +161,7 @@ class BalancedImageDataset(Dataset):
                 target_count=cfg.data.get('target_count', None)
             )
             
-            # Augmented 샘플 생성 및 저장
-            self.save_augmented_samples(n_samples=5)  # 각 클래스당 5개 샘플 저장
-            
-            # HTML 보고서 생성
+            # HTML 보고서 생성 (augmentation 예시)
             self.create_augmentation_report()
         else:
             self.augment_factors = {cls: 1 for cls in self.class_counts}
@@ -173,7 +183,6 @@ class BalancedImageDataset(Dataset):
         return len(self.indices)
     
     def __getitem__(self, idx):
-        # 실제 데이터프레임 인덱스
         real_idx = self.indices[idx]
         row = self.df.iloc[real_idx]
         
@@ -183,70 +192,45 @@ class BalancedImageDataset(Dataset):
         image = np.array(image)
         
         if self.transform:
-            image = self.transform(image=image)['image']
+            base_transform, aug_transform = self.transform
+            
+            if aug_transform:
+                # Augmentation 적용 (normalize 이전)
+                image = aug_transform(image=image)['image']
+            
+            # 기본 전처리 적용 (normalize 포함)
+            image = base_transform(image=image)['image']
         
         return image, row['target']
-
-    def save_augmented_samples(self, n_samples: int = 5):
-        """각 클래스별로 augmented 샘플 저장"""
-        for cls in self.class_counts.keys():
-            # 클래스별 이미지 필터링
-            cls_df = self.df[self.df['target'] == cls]
-            
-            # 저장 디렉토리 생성
-            cls_dir = self.output_dir / f"class_{cls}"
-            cls_dir.mkdir(exist_ok=True)
-            
-            # 랜덤 샘플 선택
-            selected_rows = cls_df.sample(
-                n=min(n_samples, len(cls_df)), 
-                random_state=42
-            )
-            
-            # 각 샘플에 대해 augmentation 적용 및 저장
-            for idx, row in selected_rows.iterrows():
-                img_path = self.img_dir / row['ID']
-                image = Image.open(img_path).convert('RGB')
-                image = np.array(image)
-                
-                # 원본 이미지 저장
-                Image.fromarray(image).save(
-                    cls_dir / f"original_{row['ID']}"
-                )
-                
-                # Augmented 이미지 저장
-                for aug_idx in range(self.augment_factors[cls]):
-                    if self.transform:
-                        aug_image = self.transform(image=image)['image']
-                        aug_image = aug_image.permute(1, 2, 0).numpy()
-                        aug_image = (aug_image * 255).astype(np.uint8)
-                        
-                        Image.fromarray(aug_image).save(
-                            cls_dir / f"aug_{aug_idx}_{row['ID']}"
-                        )
 
     def create_augmentation_report(self):
         """Augmentation 결과 HTML 보고서 생성"""
         from src.embedding import DatasetVisualizer
         
-        # HTML 보고서 생성
+        # 타임스탬프는 한 번만 생성
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_dir = f"outputs/report_augmented/{timestamp}"
+        
         visualizer = DatasetVisualizer(
-            csv_path=None,  # 직접 데이터 전달
-            img_dir="data/processed/augmented",  # 프로젝트 루트 기준 경로
-            output_dir="data/processed/augmented/report"
+            csv_path=None,
+            img_dir=str(self.img_dir),
+            output_dir=report_dir,
+            timestamp=timestamp  # 기존 타임스탬프 전달
         )
         
         # 클래스별 이미지 경로 설정
         visualizer.class_images = {
-            cls: list((self.output_dir / f"class_{cls}").glob("*.jpg"))
+            cls: [self.img_dir / row['ID'] 
+                 for _, row in self.df[self.df['target'] == cls].iterrows()]
             for cls in self.class_counts.keys()
         }
         
-        # 보고서 생성
+        # 보고서 생성 (augmentation 예시 포함)
         visualizer.create_class_report(
-            n_samples=10,
-            seed=42,  # 재현성을 위한 시드 설정
-            title="Augmented Samples Report"  # 보고서 제목
+            n_samples=5,  # 각 클래스당 5개 샘플
+            seed=42,
+            title=f"Augmentation Examples Report - {timestamp}",
+            transform=self.transform  # augmentation 함수 전달
         )
 
 def data_prep(data_path: Path, cfg: DictConfig):
@@ -289,7 +273,8 @@ def data_prep(data_path: Path, cfg: DictConfig):
 def get_dataloaders(data_path: Path, cfg: DictConfig):
     """데이터로더 생성"""
     train_transform = get_transforms(cfg.train.img_size, augment=cfg.data.augmentation)
-    val_transform = get_transforms(cfg.train.img_size, augment="none")
+    # validation/test는 augmentation 없이 base transform만
+    base_transform, _ = get_transforms(cfg.train.img_size, augment="none")
     
     # 데이터프레임 로드
     train_df = pd.read_csv(data_path / "train_fold.csv")
@@ -311,6 +296,18 @@ def get_dataloaders(data_path: Path, cfg: DictConfig):
             transform=train_transform
         )
     
+    val_dataset = ImageDataset(
+        val_df,
+        data_path / "train",
+        transform=base_transform  # base transform만 전달
+    )
+    
+    test_dataset = ImageDataset(
+        test_df,
+        data_path / "test",
+        transform=base_transform  # base transform만 전달
+    )
+    
     # WeightedRandomSampler 설정
     if cfg.data.balance_strategy == "weighted_sampler":
         class_counts = train_df['target'].value_counts().to_dict()
@@ -329,19 +326,6 @@ def get_dataloaders(data_path: Path, cfg: DictConfig):
         pin_memory=True
     )
     
-    val_dataset = ImageDataset(
-        val_df,
-        data_path / "train",
-        transform=val_transform
-    )
-    
-    test_dataset = ImageDataset(
-        test_df,
-        data_path / "test",
-        transform=val_transform
-    )
-    
-    # 데이터로더 생성
     val_loader = DataLoader(
         val_dataset,
         batch_size=cfg.train.batch_size,

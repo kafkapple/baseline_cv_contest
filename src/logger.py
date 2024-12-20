@@ -28,7 +28,6 @@ class Logger:
                 f"img_size_{cfg.train.img_size}",
                 f"split_{cfg.data.split_method}",
                 f"aug_{cfg.data.augmentation}",
-                f"da_{cfg.model.domain_adaptation.method}"
             ]
             
             # wandb config에 전체 epochs 수 포함

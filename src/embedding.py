@@ -325,7 +325,7 @@ def save_embeddings(model, data_loader, device, cfg):
 # -------------------------
 
 class DatasetVisualizer:
-    def __init__(self, csv_path: str = None, img_dir: str = None, output_dir: str = "results/dataset_viz"):
+    def __init__(self, csv_path: str = None, img_dir: str = None, output_dir: str = "results/dataset_viz", timestamp: str = None):
         """
         Args:
             csv_path: target 정보가 포함된 CSV 파일 경로 (None 가능)
@@ -339,10 +339,13 @@ class DatasetVisualizer:
         self.img_dir = self.project_root / img_dir if img_dir else None
         self.base_output_dir = self.project_root / output_dir
         
-        # timestamp 기반 run id 생성 및 폴더 생성
-        self.run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.output_dir = self.base_output_dir / self.run_id
+        # timestamp 재사용 또는 새로 생성
+        self.run_id = timestamp if timestamp else datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.output_dir = self.base_output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # images 디렉토리 미리 생성
+        (self.output_dir / "images").mkdir(exist_ok=True)
         
         # CSV 파일이 제공된 경우에만 DataFrame 생성
         if csv_path is not None:
@@ -359,15 +362,14 @@ class DatasetVisualizer:
             self.df = None
             self.class_images = {}  # 외부에서 설정 가능
     
-    def create_class_report(self, n_samples: int = 10, seed: int = None, title: str = None):
+    def create_class_report(self, n_samples: int = 10, seed: int = None, title: str = None, transform=None):
         """각 클래스별 랜덤 샘플링된 이미지로 HTML 리포트 생성"""
         if seed is not None:
             np.random.seed(seed)
             random.seed(seed)
         
-        # 이미지 저장 디���토리
+        # 이미지 저장 디렉토리 (이미 생성됨)
         images_dir = self.output_dir / "images"
-        images_dir.mkdir(exist_ok=True)
         
         # 보고서 제목 설정
         report_title = title if title else f"Dataset Class Report - {self.run_id}"
@@ -426,23 +428,51 @@ class DatasetVisualizer:
                                            min(n_samples, len(img_paths)), 
                                            replace=False)
             
-            # 이미지 추가
+            # 이미지 복사 및 augmentation 적용
             for i, img_path in enumerate(selected_paths):
                 img_filename = f"class_{class_id}_sample_{i}_{img_path.name}"
-                img_dest_path = images_dir / img_filename
                 
                 try:
-                    import shutil
-                    shutil.copy2(img_path, img_dest_path)
+                    # 원본 이미지 복사
+                    orig_path = images_dir / f"{img_filename}.orig.jpg"
+                    shutil.copy2(img_path, orig_path)
                     
-                    html_content += f"""
-                    <div class="image-container">
-                        <img src="./images/{img_filename}">
-                        <p>File: {img_path.name}</p>
-                    </div>
-                    """
+                    if transform:
+                        base_transform, aug_transform = transform
+                        if aug_transform:
+                            # Augmentation 적용 및 저장
+                            image = np.array(Image.open(img_path).convert('RGB'))
+                            aug_image = aug_transform(image=image)['image']
+                            aug_path = images_dir / f"{img_filename}.aug.jpg"
+                            Image.fromarray(aug_image).save(aug_path)
+                            
+                            # 이미지 파일 존재 확인
+                            if not orig_path.exists() or not aug_path.exists():
+                                print(f"Warning: Image files not created properly for {img_filename}")
+                
+                    # HTML 내용 추가
+                    if transform and aug_transform:
+                        html_content += f"""
+                        <div class="image-container">
+                            <div>
+                                <img src="images/{img_filename}.orig.jpg">
+                                <p>Original</p>
+                            </div>
+                            <div>
+                                <img src="images/{img_filename}.aug.jpg">
+                                <p>Augmented</p>
+                            </div>
+                        </div>
+                        """
+                    else:
+                        html_content += f"""
+                        <div class="image-container">
+                            <img src="images/{img_filename}.orig.jpg">
+                            <p>File: {img_path.name}</p>
+                        </div>
+                        """
                 except Exception as e:
-                    print(f"Error copying image {img_path}: {str(e)}")
+                    print(f"Error processing image {img_path}: {str(e)}")
             
             html_content += "</div>"
         

@@ -1,4 +1,5 @@
 #!/bin/bash
+#!/bin/bash
 
 # 스크립트 실행 중 오류 발생 시 즉시 종료
 set -e
@@ -29,6 +30,21 @@ apt install -y git || error_exit "Git 설치 실패"
 # 기본 JDK 설치
 echo "기본 JDK 설치 중..."
 apt install -y default-jdk || error_exit "default-jdk 설치 실패"
+
+# vim 설치
+echo "vim 설치 중..."
+apt install -y vim || echo "vim 설치 실패. nano 에디터를 사용할 것입니다."
+
+# 설치된 에디터 확인 및 설정
+if command -v vim &> /dev/null
+then
+    GIT_EDITOR="vim"
+    echo "vim이 설치되어 있어 Git 기본 에디터로 설정됩니다."
+else
+    echo "vim이 설치되지 않았습니다. nano를 Git 기본 에디터로 설정합니다."
+    GIT_EDITOR="nano"
+    apt install -y nano || error_exit "nano 설치 실패"
+fi
 
 echo "기본 패키지 설치 완료."
 echo ""
@@ -103,7 +119,7 @@ echo "        Git 설정 시작         "
 echo "=============================="
 
 # Git 설정을 위한 사용자 권한 스크립트
-GIT_SETUP=$(cat <<'EOF'
+GIT_SETUP=$(cat <<EOF
 #!/bin/bash
 
 # 오류 발생 시 즉시 종료
@@ -120,13 +136,13 @@ read -p "클론할 리포지토리의 URL을 입력하세요 (예: https://githu
 
 # PAT를 사용하여 리포지토리 클론
 echo "리포지토리를 클론하는 중..."
-git clone https://$PAT@${REPO_URL#https://} || { echo "리포지토리 클론 실패"; exit 1; }
+git clone https://\$PAT@\${REPO_URL#https://} || { echo "리포지토리 클론 실패"; exit 1; }
 
 # Git 글로벌 설정
 echo "Git 글로벌 설정을 적용 중..."
 git config --global user.name "kafkapple"
 git config --global user.email "biasdrive@gmail.com"
-git config --global core.editor vim
+git config --global core.editor "$GIT_EDITOR"
 git config --global core.pager cat
 git config --global alias.lg "log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit"
 
@@ -136,9 +152,9 @@ git config --global credential.helper store
 
 # 업스트림 리모트 설정 여부 확인
 read -p "업스트림 리모트를 설정하시겠습니까? (y/n): " CONFIGURE_UPSTREAM
-if [[ "$CONFIGURE_UPSTREAM" == "y" ]]; then
+if [[ "\$CONFIGURE_UPSTREAM" == "y" ]]; then
     read -p "업스트림 리포지토리의 URL을 입력하세요 (HTTPS 또는 SSH): " UPSTREAM_URL
-    git remote set-url upstream "$UPSTREAM_URL" || { echo "업스트림 리모트 설정 실패"; exit 1; }
+    git remote set-url upstream "\$UPSTREAM_URL" || { echo "업스트림 리모트 설정 실패"; exit 1; }
     echo "업스트림 리모트가 설정되었습니다."
 fi
 
@@ -148,12 +164,12 @@ git config --list --show-origin
 
 # Git 설정 초기화 여부 확인
 read -p "Git 설정을 초기화하시겠습니까? (y/n): " RESET_CONFIG
-if [[ "$RESET_CONFIG" == "y" ]]; then
-    if [[ "$OSTYPE" == "linux-gnu"* || "$OSTYPE" == "darwin"* ]]; then
+if [[ "\$RESET_CONFIG" == "y" ]]; then
+    if [[ "\$OSTYPE" == "linux-gnu"* || "\$OSTYPE" == "darwin"* ]]; then
         rm -f ~/.gitconfig
         echo "Git 설정이 초기화되었습니다 (Linux/Mac)."
-    elif [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "win32" ]]; then
-        del %USERPROFILE%\.gitconfig
+    elif [[ "\$OSTYPE" == "msys"* || "\$OSTYPE" == "win32" ]]; then
+        del %USERPROFILE%\\.gitconfig
         echo "Git 설정이 초기화되었습니다 (Windows)."
     else
         echo "알 수 없는 OS 유형입니다. Git 설정 초기화를 수동으로 수행하세요."
@@ -187,6 +203,7 @@ echo ""
 echo "=============================="
 echo "        서버 설정이 완료되었습니다.    "
 echo "=============================="
+
 
 #chmod +x setup_server.sh
 # bash setup_server.sh

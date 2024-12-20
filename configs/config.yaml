@@ -22,7 +22,7 @@ data:
   balance_classes: true
   val_selection:
     enabled: true  # validation set 추가 전략 사용 여부
-    strategy: "test_similar"  # none, random, balanced, test_similar
+    strategy: "none"  # none, random, balanced, test_similar
     similarity_metrics:  # test_similar 전략 사용시
       - "image_stats"  # 이미지 통계 기반
       - "feature_dist"  # 특징 분포 기반
@@ -70,8 +70,8 @@ model:
     tta_lr: 0.0001  # tta 적용 시 learning rate
 
 train:
-  epochs: 1
-  batch_size: 32
+  epochs: 3
+  batch_size: 64
   img_size: 224
   lr: 1e-3
   num_workers: 0

@@ -58,7 +58,7 @@ def main(cfg: DictConfig):
     # 예측 결과 저장
     sample_df = pd.read_csv(data_path / "sample_submission.csv")
     sample_df['target'] = preds_list
-    pred_path = output_dir / f"pred_{logger.experiment_id}.csv"
+    pred_path = output_dir / f"{logger.experiment_id}.csv"
     sample_df.to_csv(pred_path, index=False)
     logger.log_metrics({"predictions_saved": str(pred_path)}, phase="inference")
 

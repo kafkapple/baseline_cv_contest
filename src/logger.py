@@ -88,7 +88,7 @@ class Logger:
     
     def save_config(self):
         """실험 설정을 파일로 저장"""
-        config_path = self.log_dir / f"config_{self.experiment_id}.json"
+        config_path = self.log_dir / f"{self.experiment_id}.json"
         config_dict = OmegaConf.to_container(self.cfg, resolve=True)
         with open(config_path, 'w') as f:
             json.dump(config_dict, f, indent=2)
@@ -126,8 +126,10 @@ class Logger:
             wandb_metrics = {f"{phase}/{k}": v for k, v in metrics.items()}
             wandb.log(wandb_metrics)
     
-    def save_model(self, model, optimizer, epoch: int, metrics: dict = None):
-        """모델 체크포인트 저장"""
+    def save_model(self, model, optimizer, epoch, metrics, path=None):
+        if self.cfg.logger.save_interval == "none":
+            return  # checkpoint 저장하지 않음
+        
         checkpoint = {
             'epoch': epoch,
             'model_state_dict': model.state_dict(),

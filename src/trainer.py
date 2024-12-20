@@ -6,6 +6,7 @@ from sklearn.metrics import accuracy_score, f1_score
 import numpy as np
 from typing import Dict, Any, Optional
 import torch.nn.functional as F
+import os
 
 class Trainer:
     def __init__(self, model, device, optimizer, criterion, logger, cfg):
@@ -128,6 +129,8 @@ class Trainer:
         return val_metrics
 
     def train(self, train_loader, val_loader, epochs):
+        best_model_path = None  # checkpoint 파일 경로 저장용
+        
         for epoch in range(epochs):
             # 학습
             train_metrics = self.train_epoch(train_loader, epoch)
@@ -143,17 +146,21 @@ class Trainer:
                     if val_metrics['loss'] < self.best_val_loss:
                         self.best_val_loss = val_metrics['loss']
                         self.patience_counter = 0
-                        # 최고 성능 모델 저장
-                        self.logger.save_model(
-                            self.model, 
-                            self.optimizer,
-                            epoch,
-                            val_metrics
-                        )
-                    else:
-                        self.patience_counter += 1
-                        if self.patience_counter >= self.patience:
-                            break
+                        
+                        # 이전 checkpoint 삭제
+                        if best_model_path and os.path.exists(best_model_path):
+                            os.remove(best_model_path)
+                        
+                        # 새로운 checkpoint 저장 (save_interval이 none이 아닐 때만)
+                        if self.cfg.logger.save_interval != "none":
+                            best_model_path = f"checkpoint_{self.logger.experiment_id}.pt"
+                            self.logger.save_model(
+                                self.model, 
+                                self.optimizer,
+                                epoch,
+                                val_metrics,
+                                best_model_path
+                            )
             
             # 모델 체크포인트 저장 (validation이 없는 경우)
             if val_loader is None and (epoch + 1) % 5 == 0:
@@ -163,6 +170,10 @@ class Trainer:
                     epoch,
                     train_metrics
                 )
+        
+        # 학습 완료 후 checkpoint 삭제
+        if best_model_path and os.path.exists(best_model_path):
+            os.remove(best_model_path)
 
     def inference(self, test_loader):
         """Test-time adaptation 포함한 추론"""
@@ -196,7 +207,7 @@ class Trainer:
 
     def adapt_test_time(self, loader):
         """Test-Time Adaptation using rotation prediction"""
-        self.model.train()  # BN 통계 업데이트 ��해
+        self.model.train()  # BN 통계 업데이트 해
         optimizer = torch.optim.Adam(self.model.parameters(), lr=0.0001)
         
         with tqdm(loader, desc="Test-Time Adaptation") as pbar:

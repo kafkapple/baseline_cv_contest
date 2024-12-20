@@ -15,6 +15,7 @@ import json
 import datetime
 import pandas as pd
 import random
+import shutil
 # -------------------------
 # 1. Embedding Model Class (변동 없음)
 # -------------------------
@@ -91,7 +92,7 @@ class EmbeddingClusteringPipeline:
             img_name = os.path.basename(path)
             embedding_path = os.path.join(self.embeddings_dir, f"{os.path.splitext(img_name)[0]}.npy")
             
-            # 이미 계산된 임베딩 있는지 인
+            # 이미 계��된 임베딩 있는지 인
             if os.path.exists(embedding_path):
                 embedding = np.load(embedding_path)
             else:
@@ -136,7 +137,7 @@ class EmbeddingClusteringPipeline:
         self.visualize_clusters()
     
     def find_representative_and_outlier_samples(self):
-        """각 클러스터의 대표 샘플과 아웃라이어 찾기"""
+        """각 클러스터의 ��표 샘플과 아웃라이어 찾기"""
         self.representative_samples = []
         self.outliers = []
         
@@ -332,7 +333,7 @@ class DatasetVisualizer:
             img_dir: 이미지 디렉토리 경로
             output_dir: 결과물 저장 디렉토리
         """
-        # 프로젝트 루트 경로 설정
+        # 프로젝트 루트 경로 설��
         self.project_root = Path(__file__).parent.parent
         
         # 경로 설정 (프로젝트 루트 기준)
@@ -396,7 +397,7 @@ class DatasetVisualizer:
             class_counts = self.df['target'].value_counts().to_dict()
             total_images = len(self.df)
         else:
-            # augmented 이미지의 경우 (파일 경로에서 클래스 추출)
+            # augmented 이��지의 경우 (파일 경로에서 클래스 추출)
             class_counts = {}
             for cls, paths in self.class_images.items():
                 class_counts[cls] = len(paths)

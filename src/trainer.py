@@ -8,6 +8,9 @@ from typing import Dict, Any, Optional
 import torch.nn.functional as F
 import os
 import random
+import datetime
+from pathlib import Path
+import pandas as pd
 
 class Trainer:
     def __init__(self, model, device, optimizer, criterion, logger, cfg):
@@ -28,7 +31,7 @@ class Trainer:
         if self.early_stopping:
             self.patience = cfg.train.early_stopping.get('patience', 5)  # 기본값 5
             self.min_delta = cfg.train.early_stopping.get('min_delta', 0.001)  # 기본값 0.001
-            self.best_val_loss = float('inf')
+            self.best_f1 = 0.0  # best_val_loss 대신 best_f1 사용
             self.patience_counter = 0
 
         if cfg.model.regularization.label_smoothing > 0:
@@ -37,6 +40,9 @@ class Trainer:
             )
         else:
             self.criterion = criterion
+
+        self.best_f1 = 0.0
+        self.best_metric = {'f1': 0.0}  # 추가
 
     def train_epoch(self, train_loader, epoch):
         # DataLoader worker의 seed 설정
@@ -110,7 +116,7 @@ class Trainer:
         return epoch_metrics
 
     def validate(self, val_loader):
-        """Validation 수행"""
+        """Validation 행"""
         self.model.eval()
         total_loss = 0
         all_preds = []
@@ -141,7 +147,7 @@ class Trainer:
         for i, f1 in enumerate(class_f1):
             val_metrics[f'f1_class_{i}'] = f1
         
-        # 3. 클래스별 confusion matrix (옵션)
+        # 3. 클래스�� confusion matrix (옵션)
         if hasattr(self.cfg.logger, 'save_confusion_matrix') and self.cfg.logger.save_confusion_matrix:
             cm = confusion_matrix(all_labels, all_preds)
             val_metrics['confusion_matrix'] = cm
@@ -149,71 +155,54 @@ class Trainer:
         return val_metrics
 
     def train(self, train_loader, val_loader, epochs):
-        best_model_path = None  # checkpoint 파일 경로 저장용
-        
         for epoch in range(epochs):
             # 학습
             train_metrics = self.train_epoch(train_loader, epoch)
-            self.logger.log_metrics(train_metrics, step=epoch, phase="train")
             
             # 검증
+            val_metrics = None
             if val_loader is not None:
                 val_metrics = self.validate(val_loader)
-                self.logger.log_metrics(val_metrics, step=epoch, phase="val")
                 
-                # Early Stopping 체크
-                if self.early_stopping:
-                    if val_metrics['loss'] < self.best_val_loss:
-                        self.best_val_loss = val_metrics['loss']
-                        self.patience_counter = 0
-                        
-                        # 이전 checkpoint 삭제
-                        if best_model_path and os.path.exists(best_model_path):
-                            os.remove(best_model_path)
-                        
-                        # 새로운 checkpoint 저장 (save_interval이 none이 아닐 때만)
-                        if self.cfg.logger.save_interval != "none":
-                            best_model_path = f"checkpoint_{self.logger.experiment_id}.pt"
-                            self.logger.save_model(
-                                self.model, 
-                                self.optimizer,
-                                epoch,
-                                val_metrics,
-                                best_model_path
-                            )
+                # Best model 판단
+                current_f1 = val_metrics['f1']
+                if current_f1 > self.best_f1:
+                    self.best_f1 = current_f1
+                    self.patience_counter = 0
+                    self.save_checkpoint(epoch, is_best=True)
+                else:
+                    self.patience_counter += 1
             
-            # 모델 체크포인트 저장 (validation이 없는 경우)
-            if val_loader is None and (epoch + 1) % 5 == 0:
-                self.logger.save_model(
-                    self.model,
-                    self.optimizer,
-                    epoch,
-                    train_metrics
-                )
-        
-        # 학습 완료 후 checkpoint 삭제
-        if best_model_path and os.path.exists(best_model_path):
-            os.remove(best_model_path)
+            # 한번에 메트릭 출력
+            self._print_metrics(epoch, epochs, train_metrics, val_metrics)
+            
+            # W&B 로깅
+            self.logger.log_metrics(train_metrics, step=epoch, phase="train")
+            if val_metrics:
+                self.logger.log_metrics(val_metrics, step=epoch, phase="val")
 
     def inference(self, test_loader):
-        """Test-time adaptation 포함한 추론"""
-        if self.cfg.model.domain_adaptation.method == "adabn":
-            # AdaBN: 테스트 데이터로 BatchNorm 통계 업데이트
-            self.update_bn_stats(test_loader)
-        elif self.cfg.model.domain_adaptation.method == "tta":
-            # Test-Time Adaptation: 회전 예측 태스크로 적응
-            self.adapt_test_time(test_loader)
+        # best model 로드
+        checkpoint = torch.load(Path(self.cfg.output_dir) / "checkpoints" / "best.pt")
+        self.model.load_state_dict(checkpoint['model_state_dict'])
         
+        # 이후 inference 진행
         self.model.eval()
         all_preds = []
         
         with torch.no_grad():
             for data, _ in tqdm(test_loader, desc="Inference"):
                 data = data.to(self.device)
-                # domain adaptation 여부와 관계없이 'main' mode로 추론
                 output = self.model(data, mode='main')
                 preds = output.argmax(dim=1).cpu().numpy()
                 all_preds.extend(preds)
+        
+        # 예측 결과 저장
+        predictions_df = pd.DataFrame({
+            'ID': test_loader.dataset.df['ID'],
+            'target': all_preds
+        })
+        self.save_predictions(predictions_df)
         
         return all_preds
 
@@ -223,7 +212,7 @@ class Trainer:
         with torch.no_grad():  # 그래디언트는 계산하지 않음
             for images, _ in tqdm(loader, desc="Updating BN statistics"):
                 images = images.to(self.device)
-                _ = self.model(images)  # forward pass만 수행하여 BN 통계 업데이트
+                _ = self.model(images)  # forward pass만 수행하여 BN ���계 업데이트
 
     def adapt_test_time(self, loader):
         """Test-Time Adaptation using rotation prediction"""
@@ -309,3 +298,33 @@ class Trainer:
             metrics[f'recall_class_{i}'] = rec
         
         return metrics
+
+    def save_checkpoint(self, epoch, is_best=False):
+        # timestamp 기반 디렉토리 생성
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_dir = Path(self.cfg.output_dir) / "checkpoints" / timestamp
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        # 체크포인트 저장
+        if is_best:
+            save_path = save_dir / "best.pt"
+        else:
+            save_path = save_dir / f"epoch_{epoch}.pt"
+        
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'best_f1': self.best_f1,  # best_metric 대신 best_f1 사용
+        }, save_path)
+
+    def save_predictions(self, predictions, filename="submission.csv"):
+        # timestamp 기반 디렉토리 생성
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_dir = Path(self.cfg.output_dir) / "predictions" / timestamp
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        # 예측 결과 저장
+        save_path = save_dir / filename
+        predictions.to_csv(save_path, index=False)
+        print(f"Predictions saved to {save_path}")

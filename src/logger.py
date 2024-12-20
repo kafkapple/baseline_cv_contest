@@ -145,6 +145,23 @@ class Logger:
         if self.use_wandb:
             wandb.finish()
         print("\nExperiment finished!")
+    
+    def log_experiment(self, cfg, metrics):
+        """실험 설정과 결과를 JSON으로 저장"""
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_dir = Path(cfg.output_dir) / "logs" / timestamp
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 설정과 메트릭 통합
+        experiment_data = {
+            "config": OmegaConf.to_container(cfg, resolve=True),
+            "metrics": metrics,
+            "timestamp": timestamp
+        }
+        
+        # JSON 저장
+        with open(log_dir / "experiment.json", "w") as f:
+            json.dump(experiment_data, f, indent=2)
 
 def get_logger(cfg: DictConfig) -> Logger:
     """Logger 인스턴스를 생성하고 반환하는 함수"""
